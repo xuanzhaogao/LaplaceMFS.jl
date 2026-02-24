@@ -1,6 +1,5 @@
 using LaplaceMFS
 using Test
 
-@testset "LaplaceMFS.jl" begin
-    # Write your tests here.
-end
+include("effsphdes.jl")
+include("sphere.jl")
