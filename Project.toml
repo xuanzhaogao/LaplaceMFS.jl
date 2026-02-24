@@ -6,6 +6,7 @@ authors = ["Xuanzhao Gao <xgao@flatironinstitute.org> and contributors"]
 [deps]
 FMM3D = "1e13804c-f9b7-11ea-0ef0-29f3b1745df8"
 KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
