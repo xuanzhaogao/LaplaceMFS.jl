@@ -1,7 +1,6 @@
 [EffSphDes]
-git-tree-sha1 = "d7f409d4592e03ff0f7f15b88129138a0f0345de"
-lazy = true
+git-tree-sha1 = "cf91c9fb693f70f4a3dc39572734303fcafa9e83"
 
     [[EffSphDes.download]]
-    sha256 = "2564cbb78abb9ba1c158dd4618e59e50e89171c630c786b5cdc23389ac3c47e6"
-    url = "https://raw.githubusercontent.com/ArrogantGao/LaplaceMFS.jl/main/artifacts/EffSphDes.tar.gz"
+    sha256 = "40afd05f4858b13955a12fd65bffa1ad80e3a270a385ee94340cb5cb0611f3c9"
+    url = "https://gist.github.com/ArrogantGao/8b41fe57f1815f7fb2348633e7c35482/raw/cf91c9fb693f70f4a3dc39572734303fcafa9e83.tar.gz"

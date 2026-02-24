@@ -2,11 +2,11 @@ module LaplaceMFS
 
 using LinearAlgebra, KrylovKit
 using FMM3D
-using LazyArtifacts
+using Artifacts
 
 export effsphdes_path
 
-effsphdes_path() = joinpath(artifact"EffSphDes", "EffSphDes")
+effsphdes_path() = joinpath(artifact"EffSphDes")
 
 
 end
