@@ -72,6 +72,37 @@ end
     @test norm(y_fmm_c - y_dense_c) / norm(y_dense_c) < 1e-10
 end
 
+@testset "Multisphere Mu To Lambda" begin
+    r = 1.0
+    r_p = 0.8
+    M = 62
+    N = 42
+    ns = 3
+    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1e-12)
+
+    Bplus = mats.Vt_B' * Diagonal(mats.S_B_inv) * mats.U_B'
+    Bhat = zeros(Float64, 2 * N * ns, 2 * M * ns)
+    for s in 1:ns
+        src = 2 * (s - 1) * M + 1 : 2 * s * M
+        trg = 2 * (s - 1) * N + 1 : 2 * s * N
+        Bhat[trg, src] = Bplus
+    end
+
+    mu = randn(2 * M * ns)
+    λ_ref = Bhat * mu
+    λ = LaplaceMFS.multispheres_mu_to_lambda(mats, mu)
+    @test norm(λ - λ_ref) / norm(λ_ref) < 1e-13
+
+    muc = randn(2 * M * ns) .+ im * randn(2 * M * ns)
+    λ_ref_c = ComplexF64.(Bhat) * muc
+    λ_c = LaplaceMFS.multispheres_mu_to_lambda(mats, muc)
+    @test norm(λ_c - λ_ref_c) / norm(λ_ref_c) < 1e-13
+
+    λ_out = similar(λ_c)
+    LaplaceMFS.multispheres_mu_to_lambda!(λ_out, mats, muc)
+    @test norm(λ_out - λ_ref_c) / norm(λ_ref_c) < 1e-13
+end
+
 @testset "Multisphere Ghat Dense Matrix" begin
     r = 1.0
     r_p = 0.8
@@ -116,7 +147,7 @@ end
 
 @testset "Multisphere Ghat FMM LinearMap" begin
     r = 1.0
-    r_p = 0.8
+    r_p = 0.7
     M = 62
     N = 42
     centers = [0.0 0.0 0.0; 2.8 0.1 -0.4; -0.3 2.9 0.2]

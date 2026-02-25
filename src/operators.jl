@@ -43,6 +43,40 @@ function multispheres_G(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}) where 
     return G
 end
 
+function multispheres_mu_to_lambda!(lambda::AbstractVector{VT}, mats::SphereMats{T}, mu::AbstractVector) where {VT, T}
+    nrows_loc = 2 * mats.M
+    ncols_loc = 2 * mats.N
+    nspheres, rem = divrem(length(mu), nrows_loc)
+    rem == 0 || throw(DimensionMismatch("mu has length $(length(mu)); expected multiple of $nrows_loc"))
+    length(lambda) == ncols_loc * nspheres || throw(DimensionMismatch("lambda has length $(length(lambda)); expected $(ncols_loc * nspheres)"))
+
+    Uadj = VT.(mats.U_B')
+    Vadj = VT.(mats.Vt_B')
+    Sinv = VT.(mats.S_B_inv)
+    tmp_u = zeros(VT, ncols_loc)
+    tmp_λ = zeros(VT, ncols_loc)
+
+    @inbounds for s in 1:nspheres
+        μloc = (s - 1) * nrows_loc + 1 : s * nrows_loc
+        λloc = (s - 1) * ncols_loc + 1 : s * ncols_loc
+        mul!(tmp_u, Uadj, view(mu, μloc))
+        tmp_u .*= Sinv
+        mul!(tmp_λ, Vadj, tmp_u)
+        view(lambda, λloc) .= tmp_λ
+    end
+    return lambda
+end
+
+function multispheres_mu_to_lambda(mats::SphereMats{T}, mu::AbstractVector{CT}) where {T, CT}
+    nrows_loc = 2 * mats.M
+    ncols_loc = 2 * mats.N
+    nspheres, rem = divrem(length(mu), nrows_loc)
+    rem == 0 || throw(DimensionMismatch("mu has length $(length(mu)); expected multiple of $nrows_loc"))
+    VT = promote_type(T, CT)
+    lambda = zeros(VT, ncols_loc * nspheres)
+    return multispheres_mu_to_lambda!(lambda, mats, VT.(mu))
+end
+
 function _fmm_left_blocks(
     sources::Matrix{Float64},
     targets::Matrix{Float64},
