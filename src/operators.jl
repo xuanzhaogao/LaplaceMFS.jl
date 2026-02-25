@@ -218,33 +218,6 @@ function multispheres_Ghat_fmm(
     Sinv = VT.(mats.S_B_inv)
     Bmat = VT.(mats.B)
 
-    inter_to_group(v, nloc::Int) = begin
-        out = similar(v)
-        for s in 1:nspheres
-            src_local = 2 * (s - 1) * nloc + 1 : 2 * s * nloc
-            p_src = first(src_local) : first(src_local) + nloc - 1
-            q_src = first(src_local) + nloc : last(src_local)
-            p_trg = (s - 1) * nloc + 1 : s * nloc
-            q_trg = nspheres * nloc + (s - 1) * nloc + 1 : nspheres * nloc + s * nloc
-            view(out, p_trg) .= view(v, p_src)
-            view(out, q_trg) .= view(v, q_src)
-        end
-        out
-    end
-    group_to_inter(v, nloc::Int) = begin
-        out = similar(v)
-        for s in 1:nspheres
-            trg_local = 2 * (s - 1) * nloc + 1 : 2 * s * nloc
-            p_trg = first(trg_local) : first(trg_local) + nloc - 1
-            q_trg = first(trg_local) + nloc : last(trg_local)
-            p_src = (s - 1) * nloc + 1 : s * nloc
-            q_src = nspheres * nloc + (s - 1) * nloc + 1 : nspheres * nloc + s * nloc
-            view(out, p_trg) .= view(v, p_src)
-            view(out, q_trg) .= view(v, q_src)
-        end
-        out
-    end
-
     tmp_inter = zeros(VT, ncols)
     tmp_bdiag = zeros(VT, nrows)
     tmp_u = zeros(VT, 2 * mats.N)
@@ -263,10 +236,7 @@ function multispheres_Ghat_fmm(
             mul!(tmp_Bλ, Bmat, tmp_λ)
             view(tmp_bdiag, μloc) .= tmp_Bλ
         end
-        # Reorder λ̂ before/after applying Gfmm.
-        λ_group = inter_to_group(tmp_inter, mats.N)
-        u_group = inter_to_group(Gfmm * group_to_inter(λ_group, mats.N), mats.M)
-        y .= xT .+ group_to_inter(u_group, mats.M) .- tmp_bdiag
+        y .= xT .+ (Gfmm * tmp_inter) .- tmp_bdiag
         return y
     end
 
