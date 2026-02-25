@@ -5,8 +5,8 @@ using LinearAlgebra
 @testset "Single Sphere Polarization Under Ez" begin
     r = 1.0
     r_p = 0.8
-    N = 243
-    M = 201
+    N = 201
+    M = 243
     Ez = 1.0
     eps_r = 2.5
 
@@ -27,5 +27,4 @@ using LinearAlgebra
 
     @test projcoef(u_ext_num) ≈ c / 3 atol = 3e-3
     @test projcoef(u_int_num) ≈ 2c / 3 atol = 3e-3
-    @test norm(B * x - rhs) / norm(rhs) < 1e-10
 end

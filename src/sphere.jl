@@ -1,10 +1,43 @@
+# SphereMats stores the matrices for the single sphere case, together with the SVD of the B matrix for preconditioning.
+struct SphereMats{T}
+    r::T
+    r_p::T
+    M::Int
+    N::Int
+
+    S_pr::Matrix{T}
+    S_qr::Matrix{T}
+    D_pr::Matrix{T}
+    D_qr::Matrix{T}
+    B::Matrix{T}
+
+    S_B::Vector{T}
+    U_B::Matrix{T}
+    Vt_B::Matrix{T}
+
+    S_B_inv::Vector{T}
+end
+
+function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
+    B = single_sphere_B(r, r_p, M, N)
+
+    res = svd(B)
+    S_B = res.S
+    U_B = res.U
+    Vt_B = res.Vt
+
+    S_B_inv = [s / S_B[1] > tol ? inv(s) : zero(T) for s in S_B]
+
+    return SphereMats(r, r_p, M, N, B[1:M, 1:N], B[1:M, N+1:2N], B[M+1:2M, 1:N], B[M+1:2M, N+1:2N], B, S_B, U_B, Vt_B, S_B_inv)
+end
+
 # r is the sphere radius, r_p is the inner proxy-surface radius,
 # M is number of surface points, N is number of proxy points.
 function single_sphere_B(r::T, r_p::T, M::Int, N::Int) where T
     r_p > r && throw(ArgumentError("r_p must be <= r, got r_p=$r_p, r=$r"))
     r_q = r * r / r_p
 
-    M <= N && throw(ArgumentError("M must be > N to keep the system overdetermined, got M=$M, N=$N"))
+    M <= N && throw(ArgumentError("M must be > N to make the system overdetermined, got M=$M, N=$N"))
 
     B = zeros(T, 2 * M, 2 * N)
     pts_M = load_sphdes_N(M)  # surface points

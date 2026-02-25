@@ -9,3 +9,4 @@ artifacts/
 /docs/build/
 
 Manifest.toml
+ref/
