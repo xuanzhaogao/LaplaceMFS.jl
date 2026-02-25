@@ -11,10 +11,10 @@ using LinearAlgebra
     eps_r = 2.5
 
     B = LaplaceMFS.single_sphere_B(r, r_p, M, N)
-    rhs = LaplaceMFS.single_sphere_Ez_rhs(r, N, Ez, eps_r)
+    rhs = LaplaceMFS.single_sphere_Ez_rhs(r, M, Ez, eps_r)
     x = B \ rhs
 
-    pts = load_sphdes_N(N)
+    pts = load_sphdes_N(M)
     z = pts[:, 3]
     projcoef(v) = dot(v, z) / dot(z, z)
 
@@ -22,8 +22,8 @@ using LinearAlgebra
     # For l=1 mode and derivative continuity, the exact amplitudes are:
     # u_ext = (c/3) z, u_int = (2c/3) z.
     c = (1 - 1 / eps_r) * Ez * r
-    u_ext_num = B[1:N, 1:M] * x[1:M]
-    u_int_num = B[1:N, M+1:2M] * x[M+1:2M]
+    u_ext_num = B[1:M, 1:N] * x[1:N]
+    u_int_num = B[1:M, N+1:2N] * x[N+1:2N]
 
     @test projcoef(u_ext_num) ≈ c / 3 atol = 3e-3
     @test projcoef(u_int_num) ≈ 2c / 3 atol = 3e-3

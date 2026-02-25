@@ -4,14 +4,9 @@ using LinearAlgebra
 using Statistics
 
 # Optional CLI args:
-#   ARGS[1] = M, number of proxy points from sphere design set (default 1302)
-#   ARGS[2] = N, number of target points from sphere design set (default 1059)
-#   ARGS[3] = Ez (default 1.0)
-#   ARGS[4] = eps_r (default 2.5)
-#   ARGS[5] = r (default 1.0)
-#   ARGS[6] = r_p (default 0.7)
-M = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1302
-N = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 1059
+# M is the number of surface points, N is the number of proxy points, M > N so that gives a overdetermined system.
+M = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 1302 
+N = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 1059 
 Ez = length(ARGS) >= 3 ? parse(Float64, ARGS[3]) : 1.0
 eps_r = length(ARGS) >= 4 ? parse(Float64, ARGS[4]) : 2.5
 r = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 1.0
@@ -19,12 +14,12 @@ r_p = length(ARGS) >= 6 ? parse(Float64, ARGS[6]) : 0.7
 
 # Solve B * [p; -q] = rhs
 B = LaplaceMFS.single_sphere_B(r, r_p, M, N)
-rhs = LaplaceMFS.single_sphere_Ez_rhs(r, N, Ez, eps_r)
+rhs = LaplaceMFS.single_sphere_Ez_rhs(r, M, Ez, eps_r)
 x = B \ rhs
-p = x[1:M]
-qneg = x[M+1:2M]
+p = x[1:N]
+qneg = x[N+1:2N]
 
-pts_M = LaplaceMFS.load_sphdes_N(M)
+pts_N = LaplaceMFS.load_sphdes_N(N)
 r_q = r * r / r_p
 
 function potential_from_sources(coeffs, src_scale, src_pts, y, z)
@@ -50,8 +45,8 @@ rho = Matrix{Float64}(undef, ngrid, ngrid)
 for iz in eachindex(zs), iy in eachindex(ys)
     y = ys[iy]
     z = zs[iz]
-    u_ext_num[iz, iy] = potential_from_sources(p, r_p, pts_M, y, z)
-    u_int_num[iz, iy] = potential_from_sources(qneg, r_q, pts_M, y, z)
+    u_ext_num[iz, iy] = potential_from_sources(p, r_p, pts_N, y, z)
+    u_int_num[iz, iy] = potential_from_sources(qneg, r_q, pts_N, y, z)
     rho[iz, iy] = hypot(y, z)
 end
 
