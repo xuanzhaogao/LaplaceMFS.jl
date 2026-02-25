@@ -48,9 +48,9 @@ function _fmm_left_blocks(
     targets::Matrix{Float64},
     normals::Matrix{Float64},
     p::Vector{Float64},
-    fmm_eps::Float64,
+    fmm_tol::Float64,
 )
-    out = lfmm3d(fmm_eps, sources; charges = p, targets = targets, pgt = 2)
+    out = lfmm3d(fmm_tol, sources; charges = p, targets = targets, pgt = 2)
     inv4pi = 1.0 / (4π)
     pot = inv4pi .* out.pottarg
     grad = out.gradtarg
@@ -71,10 +71,10 @@ function _fmm_left_blocks(
     targets::Matrix{Float64},
     normals::Matrix{Float64},
     p::Vector{ComplexF64},
-    fmm_eps::Float64,
+    fmm_tol::Float64,
 )
-    pot_re, dn_re = _fmm_left_blocks(sources, targets, normals, real.(p), fmm_eps)
-    pot_im, dn_im = _fmm_left_blocks(sources, targets, normals, imag.(p), fmm_eps)
+    pot_re, dn_re = _fmm_left_blocks(sources, targets, normals, real.(p), fmm_tol)
+    pot_im, dn_im = _fmm_left_blocks(sources, targets, normals, imag.(p), fmm_tol)
     return complex.(pot_re, pot_im), complex.(dn_re, dn_im)
 end
 
