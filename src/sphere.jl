@@ -19,7 +19,7 @@ struct SphereMats{T}
 end
 
 function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
-    B = single_sphere_B(r, r_p, M, N)
+    B = singlesphere_B(r, r_p, M, N)
 
     res = svd(B)
     S_B = res.S
@@ -33,7 +33,7 @@ end
 
 # r is the sphere radius, r_p is the inner proxy-surface radius,
 # M is number of surface points, N is number of proxy points.
-function single_sphere_B(r::T, r_p::T, M::Int, N::Int) where T
+function singlesphere_B(r::T, r_p::T, M::Int, N::Int) where T
     r_p > r && throw(ArgumentError("r_p must be <= r, got r_p=$r_p, r=$r"))
     r_q = r * r / r_p
 
@@ -65,7 +65,7 @@ function single_sphere_B(r::T, r_p::T, M::Int, N::Int) where T
     return B
 end
 
-function single_sphere_Ez_rhs(r::T, M::Int, Ez::T, eps_r::T) where T
+function singlesphere_Ez_rhs(r::T, M::Int, Ez::T, eps_r::T) where T
     rhs = zeros(T, 2 * M)
     pts_M = load_sphdes_N(M)
 
@@ -73,5 +73,18 @@ function single_sphere_Ez_rhs(r::T, M::Int, Ez::T, eps_r::T) where T
         rhs[i] = Ez * (1 - 1 / eps_r) * r * pts_M[i, 3]
     end
 
+    return rhs
+end
+
+function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T}) where {T, VT}
+    nspheres = size(centers, 1)
+    rhs = zeros(T, 2 * M * nspheres)
+    for s in 1:nspheres
+        center_s = vec(centers[s, :])
+        pts_M = load_sphdes_N(M) .+ center_s'
+        for i in 1:M
+            rhs[(s - 1) * 2M + i] = Ez * (1 - 1 / eps_r[s]) * r * pts_M[i, 3]
+        end
+    end
     return rhs
 end

@@ -10,8 +10,8 @@ using LinearAlgebra
     Ez = 1.0
     eps_r = 2.5
 
-    B = LaplaceMFS.single_sphere_B(r, r_p, M, N)
-    rhs = LaplaceMFS.single_sphere_Ez_rhs(r, M, Ez, eps_r)
+    B = LaplaceMFS.singlesphere_B(r, r_p, M, N)
+    rhs = LaplaceMFS.singlesphere_Ez_rhs(r, M, Ez, eps_r)
     x = B \ rhs
 
     pts = load_sphdes_N(M)

@@ -13,8 +13,8 @@ r = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 1.0
 r_p = length(ARGS) >= 6 ? parse(Float64, ARGS[6]) : 0.7
 
 # Solve B * [p; -q] = rhs
-B = LaplaceMFS.single_sphere_B(r, r_p, M, N)
-rhs = LaplaceMFS.single_sphere_Ez_rhs(r, M, Ez, eps_r)
+B = LaplaceMFS.singlesphere_B(r, r_p, M, N)
+rhs = LaplaceMFS.singlesphere_Ez_rhs(r, M, Ez, eps_r)
 x = B \ rhs
 p = x[1:N]
 qneg = x[N+1:2N]
@@ -98,6 +98,6 @@ ax = Axis(
 hm = heatmap!(ax, ys, zs, combined_rel_plot; colormap = :viridis, colorscale = log10)
 Colorbar(fig[1, 2], hm)
 
-output = joinpath(@__DIR__, "single_sphere_Ez_plane_error.png")
+output = joinpath(@__DIR__, "singlesphere_Ez_plane_error.png")
 save(output, fig)
 println("Saved figure to ", output)

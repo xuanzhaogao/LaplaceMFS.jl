@@ -9,7 +9,7 @@ using LinearAlgebra
     N = 42
     centers1 = zeros(1, 3)
     G1 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers1)
-    B1 = LaplaceMFS.single_sphere_B(r, r_p, M, N)
+    B1 = LaplaceMFS.singlesphere_B(r, r_p, M, N)
     @test size(G1) == size(B1)
     @test G1 ≈ B1 atol = 1e-12
 
