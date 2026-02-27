@@ -13,7 +13,7 @@ r = length(ARGS) >= 5 ? parse(Float64, ARGS[5]) : 1.0
 r_p = length(ARGS) >= 6 ? parse(Float64, ARGS[6]) : 0.7
 
 # Solve B * [p; -q] = rhs
-B = LaplaceMFS.singlesphere_B(r, r_p, M, N)
+B = LaplaceMFS.singlesphere_B(r, r_p, M, N, eps_r)
 rhs = LaplaceMFS.singlesphere_Ez_rhs(r, M, Ez, eps_r)
 x = B \ rhs
 p = x[1:N]
@@ -50,18 +50,19 @@ for iz in eachindex(zs), iy in eachindex(ys)
     rho[iz, iy] = hypot(y, z)
 end
 
-# Theoretical mode amplitudes for this formulation:
-# c = (1 - 1/eps_r) * Ez * r,
-# u_ext^(th) = (c*r^3/3) * z/rho^3 (outside),
-# u_int^(th) = (2c/3) * z (inside).
-c = (1.0 - 1.0 / eps_r) * Ez * r
+# Reference: refs/single_sphere.md
+# ΔΦ_ext = r^3 * ((eps_r - 1)/(eps_r + 2)) * Ez * z / rho^3 (outside),
+# and on rho = r, ΔΦ_ext = ((eps_r - 1)/(eps_r + 2)) * Ez * z.
+# Together with u_ext + u_int = (1 - 1/eps_r) * Ez * z on rho = r:
+# u_int^(th) = (2/(eps_r + 2)) * (1 - 1/eps_r) * Ez * z (inside).
+c = (1.0 - 1.0 / eps_r) * Ez
 u_ext_th = Matrix{Float64}(undef, ngrid, ngrid)
 u_int_th = Matrix{Float64}(undef, ngrid, ngrid)
 for iz in eachindex(zs), iy in eachindex(ys)
     z = zs[iz]
     rr = rho[iz, iy]
-    u_ext_th[iz, iy] = (c * r^3 / 3.0) * z / rr^3
-    u_int_th[iz, iy] = (2.0 * c / 3.0) * z
+    u_ext_th[iz, iy] = ((eps_r - 1.0) / (eps_r + 2.0)) * Ez * r^3 * z / rr^3
+    u_int_th[iz, iy] = (2.0 * c / (eps_r + 2.0)) * z
 end
 
 inside = rho .<= r

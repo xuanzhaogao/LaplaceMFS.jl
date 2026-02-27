@@ -18,8 +18,8 @@ struct SphereMats{T}
     S_B_inv::Vector{T}
 end
 
-function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
-    B = singlesphere_B(r, r_p, M, N)
+function SphereMats(r::T, r_p::T, M::Int, N::Int, eps_r::T, tol::T) where T
+    B = singlesphere_B(r, r_p, M, N, eps_r)
 
     res = svd(B)
     S_B = res.S
@@ -31,9 +31,13 @@ function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
     return SphereMats(r, r_p, M, N, B[1:M, 1:N], B[1:M, N+1:2N], B[M+1:2M, 1:N], B[M+1:2M, N+1:2N], B, S_B, U_B, Vt_B, S_B_inv)
 end
 
+function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
+    return SphereMats(r, r_p, M, N, one(T), tol)
+end
+
 # r is the sphere radius, r_p is the inner proxy-surface radius,
 # M is number of surface points, N is number of proxy points.
-function singlesphere_B(r::T, r_p::T, M::Int, N::Int) where T
+function singlesphere_B(r::T, r_p::T, M::Int, N::Int, eps_r::T) where T
     r_p > r && throw(ArgumentError("r_p must be <= r, got r_p=$r_p, r=$r"))
     r_q = r * r / r_p
 
@@ -53,7 +57,7 @@ function singlesphere_B(r::T, r_p::T, M::Int, N::Int) where T
             S_pr[i, j] = laplace3d_pot(r_p .* pts_N[j, :], r .* pts_M[i, :])
             S_qr[i, j] = laplace3d_pot(r_q .* pts_N[j, :], r .* pts_M[i, :])
             D_pr[i, j] = laplace3d_grad(r_p .* pts_N[j, :], r .* pts_M[i, :], pts_M[i, :])
-            D_qr[i, j] = laplace3d_grad(r_q .* pts_N[j, :], r .* pts_M[i, :], pts_M[i, :])
+            D_qr[i, j] = laplace3d_grad(r_q .* pts_N[j, :], r .* pts_M[i, :], pts_M[i, :]) * eps_r
         end
     end
 
@@ -83,7 +87,7 @@ function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T})
         center_s = vec(centers[s, :])
         pts_M = load_sphdes_N(M) .+ center_s'
         for i in 1:M
-            rhs[(s - 1) * 2M + i] = Ez * (1 - 1 / eps_r[s]) * r * pts_M[i, 3]
+            rhs[(s - 1) * 2M + i] = Ez * (1 - 1 / eps_r) * r * pts_M[i, 3]
         end
     end
     return rhs
