@@ -72,9 +72,10 @@ end
 function singlesphere_Ez_rhs(r::T, M::Int, Ez::T, eps_r::T) where T
     rhs = zeros(T, 2 * M)
     pts_M = load_sphdes_N(M)
+    _ = r
 
     for i in 1:M
-        rhs[i] = Ez * (1 - 1 / eps_r) * r * pts_M[i, 3]
+        rhs[M + i] = Ez * (eps_r - 1) * pts_M[i, 3]
     end
 
     return rhs
@@ -83,12 +84,94 @@ end
 function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T}) where {T, VT}
     nspheres = size(centers, 1)
     rhs = zeros(T, 2 * M * nspheres)
+    pts_M = load_sphdes_N(M)
+    _ = r
+    _ = centers
     for s in 1:nspheres
-        center_s = vec(centers[s, :])
-        pts_M = load_sphdes_N(M) .+ center_s'
         for i in 1:M
-            rhs[(s - 1) * 2M + i] = Ez * (1 - 1 / eps_r) * r * pts_M[i, 3]
+            rhs[(s - 1) * 2M + M + i] = Ez * (eps_r - 1) * pts_M[i, 3]
         end
     end
+    return rhs
+end
+
+"""
+    doublespheres_B(r, r_p, M, N, eps_r, centers)
+
+Construct the explicit 2-sphere overdetermined matrix in Eq. (9) of `refs/note.pdf`
+for unknown ordering `[p1; p2; -q1; -q2]` and row ordering
+`[pot on sphere 1; pot on sphere 2; dn on sphere 1; dn on sphere 2]`.
+"""
+function doublespheres_B(
+    r::T,
+    r_p::T,
+    M::Int,
+    N::Int,
+    eps_r::T,
+    centers::AbstractMatrix{T},
+) where {T}
+    size(centers) == (2, 3) || throw(DimensionMismatch("centers must be a 2x3 matrix"))
+    r_p < r || throw(ArgumentError("r_p must be < r, got r_p=$r_p, r=$r"))
+    M > N || throw(ArgumentError("M must be > N, got M=$M, N=$N"))
+
+    r_q = r * r / r_p
+    c1 = vec(centers[1, :])
+    c2 = vec(centers[2, :])
+
+    pts_M = load_sphdes_N(M)
+    pts_N = load_sphdes_N(N)
+
+    B = zeros(T, 4 * M, 4 * N)
+
+    row_p1 = 1:M
+    row_p2 = M + 1:2M
+    row_dn1 = 2M + 1:3M
+    row_dn2 = 3M + 1:4M
+    col_p1 = 1:N
+    col_p2 = N + 1:2N
+    col_q1 = 2N + 1:3N
+    col_q2 = 3N + 1:4N
+
+    @inbounds for i in 1:M
+        trg1 = c1 .+ r .* vec(pts_M[i, :])
+        trg2 = c2 .+ r .* vec(pts_M[i, :])
+        n1 = vec(pts_M[i, :])
+        n2 = vec(pts_M[i, :])
+
+        for j in 1:N
+            src_p1 = c1 .+ r_p .* vec(pts_N[j, :])
+            src_p2 = c2 .+ r_p .* vec(pts_N[j, :])
+            src_q1 = c1 .+ r_q .* vec(pts_N[j, :])
+            src_q2 = c2 .+ r_q .* vec(pts_N[j, :])
+
+            B[row_p1[i], col_p1[j]] = laplace3d_pot(src_p1, trg1)
+            B[row_p1[i], col_q1[j]] = laplace3d_pot(src_q1, trg1)
+            B[row_p2[i], col_p2[j]] = laplace3d_pot(src_p2, trg2)
+            B[row_p2[i], col_q2[j]] = laplace3d_pot(src_q2, trg2)
+
+            B[row_dn1[i], col_p1[j]] = laplace3d_grad(src_p1, trg1, n1)
+            B[row_dn1[i], col_p2[j]] = (one(T) - eps_r) * laplace3d_grad(src_p2, trg1, n1)
+            B[row_dn1[i], col_q1[j]] = eps_r * laplace3d_grad(src_q1, trg1, n1)
+
+            B[row_dn2[i], col_p1[j]] = (one(T) - eps_r) * laplace3d_grad(src_p1, trg2, n2)
+            B[row_dn2[i], col_p2[j]] = laplace3d_grad(src_p2, trg2, n2)
+            B[row_dn2[i], col_q2[j]] = eps_r * laplace3d_grad(src_q2, trg2, n2)
+        end
+    end
+    return B
+end
+
+"""
+    doublespheres_Ez_rhs(M, Ez, eps_r)
+
+Right-hand side in Eq. (9) of `refs/note.pdf` for ordering compatible with
+`doublespheres_B`.
+"""
+function doublespheres_Ez_rhs(M::Int, Ez::T, eps_r::T) where {T}
+    rhs = zeros(T, 4 * M)
+    pts_M = load_sphdes_N(M)
+    nz = pts_M[:, 3]
+    rhs[2M+1:3M] .= -(eps_r - one(T)) * Ez .* nz
+    rhs[3M+1:4M] .= -(eps_r - one(T)) * Ez .* nz
     return rhs
 end
