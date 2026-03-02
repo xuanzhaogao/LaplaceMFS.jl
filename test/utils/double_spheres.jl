@@ -40,7 +40,7 @@ end
     rhs = LaplaceMFS.doublespheres_Ez_rhs(M, Ez, eps_r)
     x = B \ rhs
 
-    p_coeffs = vcat(x[1:N], x[N+1:2N])
+    p_coeffs = vcat(x[1:N], x[2N+1:3N])
 
     targets = [
         0.0   0.0   0.0   1.0  -2.0   2.0;

@@ -141,7 +141,7 @@ end
     @test u_in ≈ u_in_ref rtol = 1e-13
 end
 
-@testset "Two-sphere matrix follows note Eq. (9)" begin
+@testset "Two-sphere matrix follows note Eq. (10)" begin
     r = 1.0
     r_p = 0.7
     M = 62
@@ -153,12 +153,12 @@ end
     @test size(B) == (4M, 4N)
 
     row_p1 = 1:M
-    row_p2 = M + 1 : 2M
-    row_dn1 = 2M + 1 : 3M
+    row_dn1 = M + 1 : 2M
+    row_p2 = 2M + 1 : 3M
     row_dn2 = 3M + 1 : 4M
     col_p1 = 1:N
-    col_p2 = N + 1 : 2N
-    col_q1 = 2N + 1 : 3N
+    col_q1 = N + 1 : 2N
+    col_p2 = 2N + 1 : 3N
     col_q2 = 3N + 1 : 4N
 
     @test B[row_p1, col_p2] ≈ zeros(M, N) atol = 1e-14
@@ -182,18 +182,18 @@ end
     src_q2 = vec(centers[2, :]) .+ r_q .* vec(pts_N[j, :])
 
     @test B[i, j] ≈ laplace3d_pot(src_p1, trg1) atol = 1e-14
-    @test B[i, 2N + j] ≈ laplace3d_pot(src_q1, trg1) atol = 1e-14
-    @test B[M + i, N + j] ≈ laplace3d_pot(src_p2, trg2) atol = 1e-14
-    @test B[M + i, 3N + j] ≈ laplace3d_pot(src_q2, trg2) atol = 1e-14
+    @test B[i, N + j] ≈ laplace3d_pot(src_q1, trg1) atol = 1e-14
+    @test B[2M + i, 2N + j] ≈ laplace3d_pot(src_p2, trg2) atol = 1e-14
+    @test B[2M + i, 3N + j] ≈ laplace3d_pot(src_q2, trg2) atol = 1e-14
 
-    @test B[2M + i, j] ≈ laplace3d_grad(src_p1, trg1, n1) atol = 1e-14
-    @test B[2M + i, N + j] ≈ (1 - eps_r) * laplace3d_grad(src_p2, trg1, n1) atol = 1e-14
-    @test B[2M + i, 2N + j] ≈ eps_r * laplace3d_grad(src_q1, trg1, n1) atol = 1e-14
-    @test B[2M + i, 3N + j] ≈ 0.0 atol = 1e-14
+    @test B[M + i, j] ≈ laplace3d_grad(src_p1, trg1, n1) atol = 1e-14
+    @test B[M + i, N + j] ≈ eps_r * laplace3d_grad(src_q1, trg1, n1) atol = 1e-14
+    @test B[M + i, 2N + j] ≈ (1 - eps_r) * laplace3d_grad(src_p2, trg1, n1) atol = 1e-14
+    @test B[M + i, 3N + j] ≈ 0.0 atol = 1e-14
 
     @test B[3M + i, j] ≈ (1 - eps_r) * laplace3d_grad(src_p1, trg2, n2) atol = 1e-14
-    @test B[3M + i, N + j] ≈ laplace3d_grad(src_p2, trg2, n2) atol = 1e-14
-    @test B[3M + i, 2N + j] ≈ 0.0 atol = 1e-14
+    @test B[3M + i, N + j] ≈ 0.0 atol = 1e-14
+    @test B[3M + i, 2N + j] ≈ laplace3d_grad(src_p2, trg2, n2) atol = 1e-14
     @test B[3M + i, 3N + j] ≈ eps_r * laplace3d_grad(src_q2, trg2, n2) atol = 1e-14
 end
 
@@ -204,7 +204,8 @@ end
     rhs = LaplaceMFS.doublespheres_Ez_rhs(M, Ez, eps_r)
     pts_M = load_sphdes_N(M)
     nz = pts_M[:, 3]
-    @test rhs[1:2M] ≈ zeros(2M) atol = 1e-14
-    @test rhs[2M+1:3M] ≈ (-(eps_r - 1) * Ez) .* nz atol = 1e-14
+    @test rhs[1:M] ≈ zeros(M) atol = 1e-14
+    @test rhs[M+1:2M] ≈ (-(eps_r - 1) * Ez) .* nz atol = 1e-14
+    @test rhs[2M+1:3M] ≈ zeros(M) atol = 1e-14
     @test rhs[3M+1:4M] ≈ (-(eps_r - 1) * Ez) .* nz atol = 1e-14
 end

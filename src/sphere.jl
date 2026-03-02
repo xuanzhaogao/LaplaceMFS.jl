@@ -1,56 +1,56 @@
 # SphereMats stores the matrices for the single sphere case, together with the SVD of the B matrix for preconditioning.
-struct SphereMats{T}
-    r::T
-    r_p::T
+struct SphereMats{RT, VT}
+    r::RT
+    r_p::RT
+    eps_r::VT
     M::Int
     N::Int
 
-    S_pr::Matrix{T}
-    S_qr::Matrix{T}
-    D_pr::Matrix{T}
-    D_qr::Matrix{T}
-    B::Matrix{T}
+    S_pr::Matrix{VT}
+    S_qr::Matrix{VT}
+    D_pr::Matrix{VT}
+    D_qr::Matrix{VT}
+    B::Matrix{VT}
 
-    S_B::Vector{T}
-    U_B::Matrix{T}
-    Vt_B::Matrix{T}
+    S_B::Vector{VT}
+    U_B::Matrix{VT}
+    Vt_B::Matrix{VT}
 
-    S_B_inv::Vector{T}
+    S_B_inv::Vector{VT}
 end
 
-function SphereMats(r::T, r_p::T, M::Int, N::Int, eps_r::T, tol::T) where T
+function SphereMats(r::RT, r_p::RT, M::Int, N::Int, eps_r::ET, tol::TT) where {RT, ET, TT}
+    VT = promote_type(RT, ET)
     B = singlesphere_B(r, r_p, M, N, eps_r)
 
     res = svd(B)
-    S_B = res.S
-    U_B = res.U
-    Vt_B = res.Vt
+    S_B = VT.(res.S)
+    U_B = VT.(res.U)
+    Vt_B = VT.(res.Vt)
 
-    S_B_inv = [s / S_B[1] > tol ? inv(s) : zero(T) for s in S_B]
+    tolT = float(real(tol))
+    S_B_inv = [abs(s / S_B[1]) > tolT ? inv(s) : zero(VT) for s in S_B]
 
-    return SphereMats(r, r_p, M, N, B[1:M, 1:N], B[1:M, N+1:2N], B[M+1:2M, 1:N], B[M+1:2M, N+1:2N], B, S_B, U_B, Vt_B, S_B_inv)
-end
-
-function SphereMats(r::T, r_p::T, M::Int, N::Int, tol::T) where T
-    return SphereMats(r, r_p, M, N, one(T), tol)
+    return SphereMats(r, r_p, VT(eps_r), M, N, VT.(B[1:M, 1:N]), VT.(B[1:M, N+1:2N]), VT.(B[M+1:2M, 1:N]), VT.(B[M+1:2M, N+1:2N]), VT.(B), S_B, U_B, Vt_B, S_B_inv)
 end
 
 # r is the sphere radius, r_p is the inner proxy-surface radius,
 # M is number of surface points, N is number of proxy points.
-function singlesphere_B(r::T, r_p::T, M::Int, N::Int, eps_r::T) where T
+function singlesphere_B(r::RT, r_p::RT, M::Int, N::Int, eps_r::ET) where {RT, ET}
+    VT = promote_type(RT, ET)
     r_p > r && throw(ArgumentError("r_p must be <= r, got r_p=$r_p, r=$r"))
     r_q = r * r / r_p
 
     M <= N && throw(ArgumentError("M must be > N to make the system overdetermined, got M=$M, N=$N"))
 
-    B = zeros(T, 2 * M, 2 * N)
+    B = zeros(VT, 2 * M, 2 * N)
     pts_M = load_sphdes_N(M)  # surface points
     pts_N = load_sphdes_N(N)  # proxy points
 
-    S_pr = zeros(T, M, N)
-    S_qr = zeros(T, M, N)
-    D_pr = zeros(T, M, N)
-    D_qr = zeros(T, M, N)
+    S_pr = zeros(VT, M, N)
+    S_qr = zeros(VT, M, N)
+    D_pr = zeros(VT, M, N)
+    D_qr = zeros(VT, M, N)
 
     for i in 1:M
         for j in 1:N
@@ -98,9 +98,9 @@ end
 """
     doublespheres_B(r, r_p, M, N, eps_r, centers)
 
-Construct the explicit 2-sphere overdetermined matrix in Eq. (9) of `refs/note.pdf`
-for unknown ordering `[p1; p2; -q1; -q2]` and row ordering
-`[pot on sphere 1; pot on sphere 2; dn on sphere 1; dn on sphere 2]`.
+Construct the explicit 2-sphere overdetermined matrix in Eq. (10) of `refs/note.pdf`
+for unknown ordering `[p1; -q1; p2; -q2]` and row ordering
+`[pot on sphere 1; dn on sphere 1; pot on sphere 2; dn on sphere 2]`.
 """
 function doublespheres_B(
     r::T,
@@ -124,12 +124,12 @@ function doublespheres_B(
     B = zeros(T, 4 * M, 4 * N)
 
     row_p1 = 1:M
-    row_p2 = M + 1:2M
-    row_dn1 = 2M + 1:3M
+    row_dn1 = M + 1:2M
+    row_p2 = 2M + 1:3M
     row_dn2 = 3M + 1:4M
     col_p1 = 1:N
-    col_p2 = N + 1:2N
-    col_q1 = 2N + 1:3N
+    col_q1 = N + 1:2N
+    col_p2 = 2N + 1:3N
     col_q2 = 3N + 1:4N
 
     @inbounds for i in 1:M
@@ -164,14 +164,14 @@ end
 """
     doublespheres_Ez_rhs(M, Ez, eps_r)
 
-Right-hand side in Eq. (9) of `refs/note.pdf` for ordering compatible with
+Right-hand side in Eq. (10) of `refs/note.pdf` for ordering compatible with
 `doublespheres_B`.
 """
 function doublespheres_Ez_rhs(M::Int, Ez::T, eps_r::T) where {T}
     rhs = zeros(T, 4 * M)
     pts_M = load_sphdes_N(M)
     nz = pts_M[:, 3]
-    rhs[2M+1:3M] .= -(eps_r - one(T)) * Ez .* nz
+    rhs[M+1:2M] .= -(eps_r - one(T)) * Ez .* nz
     rhs[3M+1:4M] .= -(eps_r - one(T)) * Ez .* nz
     return rhs
 end

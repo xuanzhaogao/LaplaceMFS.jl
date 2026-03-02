@@ -8,21 +8,19 @@ using LinearAlgebra
     M = 62
     N = 42
     centers1 = zeros(1, 3)
-    G1 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers1)
+    G1 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers1, 1.0)
     B1 = LaplaceMFS.singlesphere_B(r, r_p, M, N, 1.0)
     @test size(G1) == size(B1)
     @test G1 ≈ B1 atol = 1e-12
 
     centers2 = [0.0 0.0 0.0; 3.0 0.0 0.0]
     eps_r = 2.5
-    G2 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers2)
+    G2 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers2, 1.0)
     G2_eps = LaplaceMFS.multispheres_G(r, r_p, M, N, centers2, eps_r)
     B2_eps = LaplaceMFS.doublespheres_B(r, r_p, M, N, eps_r, centers2)
-    rowperm = vcat(1:M, 2M + 1:3M, M + 1:2M, 3M + 1:4M)
-    colperm = vcat(1:N, 2N + 1:3N, N + 1:2N, 3N + 1:4N)
     ns = size(centers2, 1)
     @test size(G2) == (4M, 4N)
-    @test G2_eps ≈ B2_eps[rowperm, colperm] atol = 1e-12
+    @test G2_eps ≈ B2_eps atol = 1e-12
 
     row_pot_1 = 1:M
     row_dn_1 = M + 1 : 2M
@@ -37,7 +35,7 @@ using LinearAlgebra
     @test G2[1, col_p_2_first] == 0.0
 
     centers3 = [0.0 0.0 0.0; 3.0 0.2 -0.1; -2.2 1.7 0.4]
-    G3 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers3)
+    G3 = LaplaceMFS.multispheres_G(r, r_p, M, N, centers3, 1.0)
     G3_eps = LaplaceMFS.multispheres_G(r, r_p, M, N, centers3, eps_r)
     for s in 1:3
         rpot = 2 * (s - 1) * M + 1 : 2 * (s - 1) * M + M
@@ -64,9 +62,9 @@ end
     M = 62
     N = 42
     centers = [0.0 0.0 0.0; 2.8 0.1 -0.4; -0.3 2.9 0.2]
-    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1e-12)
+    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5, 1e-12)
 
-    Gfmm = LaplaceMFS.multispheres_G_fmm(mats, centers, 2.5, 1e-13)
+    Gfmm = LaplaceMFS.multispheres_G_fmm(mats, centers, 1e-13)
     Gdense_eps = LaplaceMFS.multispheres_G(r, r_p, M, N, centers, 2.5)
 
     x = randn(2 * N * size(centers, 1))
@@ -74,7 +72,8 @@ end
     y_fmm = Gfmm * x
     @test norm(y_fmm - y_dense) / norm(y_dense) < 1e-10
 
-    Gfmm_c = LaplaceMFS.multispheres_G_fmm(mats, centers, 2.5 + 0.1im, 1e-13)
+    mats_c = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5 + 0.1im, 1e-12)
+    Gfmm_c = LaplaceMFS.multispheres_G_fmm(mats_c, centers, 1e-13)
     Gdense_eps_c = LaplaceMFS.multispheres_G(r, r_p, M, N, centers, 2.5 + 0.1im)
     xc = randn(2 * N * size(centers, 1)) .+ im * randn(2 * N * size(centers, 1))
     y_dense_c = Gdense_eps_c * xc
@@ -88,7 +87,7 @@ end
     M = 62
     N = 42
     ns = 3
-    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1e-12)
+    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1.0, 1e-12)
 
     Bplus = mats.Vt_B' * Diagonal(mats.S_B_inv) * mats.U_B'
     Bhat = zeros(Float64, 2 * N * ns, 2 * M * ns)
@@ -120,16 +119,12 @@ end
     N = 42
     centers = [0.0 0.0 0.0; 2.8 0.1 -0.4; -0.3 2.9 0.2]
     ns = size(centers, 1)
-    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1e-12)
+    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5, 1e-12)
 
-    function dense_ghat_matrix(eps_r)
-        VT = promote_type(Float64, typeof(eps_r))
-        B = zeros(VT, 2 * M, 2 * N)
-        B[1:M, 1:N] .= VT.(mats.S_pr)
-        B[1:M, N+1:2N] .= VT.(mats.S_qr)
-        B[M+1:2M, 1:N] .= VT.(mats.D_pr)
-        B[M+1:2M, N+1:2N] .= VT(eps_r) .* VT.(mats.D_qr)
-        Bplus = pinv(B)
+    function dense_ghat_matrix(mats_loc)
+        VT = eltype(mats_loc.B)
+        B = mats_loc.B
+        Bplus = VT.(mats_loc.Vt_B') * Diagonal(VT.(mats_loc.S_B_inv)) * VT.(mats_loc.U_B')
         Bhat = zeros(VT, 2 * N * ns, 2 * M * ns)
         Bblkdiag = zeros(VT, 2 * M * ns, 2 * N * ns)
         for s in 1:ns
@@ -138,19 +133,20 @@ end
             Bhat[trg, src] = Bplus
             Bblkdiag[src, trg] = B
         end
-        Geps = VT.(LaplaceMFS.multispheres_G(r, r_p, M, N, centers, eps_r))
+        Geps = VT.(LaplaceMFS.multispheres_G(r, r_p, M, N, centers, mats_loc.eps_r))
         return Matrix{VT}(I, 2 * M * ns, 2 * M * ns) + Geps * Bhat - Bblkdiag * Bhat
     end
 
-    Ghat = LaplaceMFS.multispheres_Ghat(mats, centers, 2.5)
-    Ghat_ref = dense_ghat_matrix(2.5)
+    Ghat = LaplaceMFS.multispheres_Ghat(mats, centers)
+    Ghat_ref = dense_ghat_matrix(mats)
     x = randn(2 * M * ns)
     y_ref = Ghat_ref * x
     y = Ghat * x
     @test norm(y - y_ref) / norm(y_ref) < 1e-13
 
-    Ghat_c = LaplaceMFS.multispheres_Ghat(mats, centers, 2.5 + 0.1im)
-    Ghat_ref_c = dense_ghat_matrix(2.5 + 0.1im)
+    mats_c = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5 + 0.1im, 1e-12)
+    Ghat_c = LaplaceMFS.multispheres_Ghat(mats_c, centers)
+    Ghat_ref_c = dense_ghat_matrix(mats_c)
     xc = randn(2 * M * ns) .+ im * randn(2 * M * ns)
     y_ref_c = Ghat_ref_c * xc
     y_c = Ghat_c * xc
@@ -163,17 +159,18 @@ end
     M = 62
     N = 42
     centers = [0.0 0.0 0.0; 2.8 0.1 -0.4; -0.3 2.9 0.2]
-    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 1e-12)
+    mats = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5, 1e-12)
 
-    Ghat = LaplaceMFS.multispheres_Ghat(mats, centers, 2.5)
-    Ghat_fmm = LaplaceMFS.multispheres_Ghat_fmm(mats, centers, 2.5, 1e-13)
+    Ghat = LaplaceMFS.multispheres_Ghat(mats, centers)
+    Ghat_fmm = LaplaceMFS.multispheres_Ghat_fmm(mats, centers, 1e-13)
     x = randn(2 * M * size(centers, 1))
     y = Ghat * x
     y_fmm = Ghat_fmm * x
     @test norm(y_fmm - y) / norm(y) < 1e-10
 
-    Ghat_c = LaplaceMFS.multispheres_Ghat(mats, centers, 2.5 + 0.1im)
-    Ghat_fmm_c = LaplaceMFS.multispheres_Ghat_fmm(mats, centers, 2.5 + 0.1im, 1e-13)
+    mats_c = LaplaceMFS.SphereMats(r, r_p, M, N, 2.5 + 0.1im, 1e-12)
+    Ghat_c = LaplaceMFS.multispheres_Ghat(mats_c, centers)
+    Ghat_fmm_c = LaplaceMFS.multispheres_Ghat_fmm(mats_c, centers, 1e-13)
     xc = randn(2 * M * size(centers, 1)) .+ im * randn(2 * M * size(centers, 1))
     y_c = Ghat_c * xc
     y_fmm_c = Ghat_fmm_c * xc
