@@ -12,7 +12,7 @@ using LinearAlgebra
     pts = load_sphdes_N(M)
 
     @test rhs[1:M] ≈ zeros(M) atol = 1e-14
-    @test rhs[M+1:2M] ≈ ((eps_r - 1) * Ez) .* pts[:, 3] atol = 1e-14
+    @test rhs[M+1:2M] ≈ (-(eps_r - 1) * Ez) .* pts[:, 3] atol = 1e-14
 end
 
 @testset "Multisphere RHS repeats single-sphere normal term per sphere" begin
@@ -24,7 +24,7 @@ end
 
     rhs = LaplaceMFS.multispheres_Ez_rhs(r, M, Ez, eps_r, centers)
     pts = load_sphdes_N(M)
-    rhs_loc = vcat(zeros(M), ((eps_r - 1) * Ez) .* pts[:, 3])
+    rhs_loc = vcat(zeros(M), (-(eps_r - 1) * Ez) .* pts[:, 3])
 
     for s in 1:size(centers, 1)
         loc = (s - 1) * 2M + 1 : s * 2M
@@ -83,6 +83,36 @@ end
     u_ext_th = ((eps_r - 1) / (eps_r + 2)) * Ez * r^3 .* vec(targets[3, :]) ./ (rho .^ 3)
 
     @test u_ext_num ≈ u_ext_th rtol = 1e-5
+end
+
+@testset "eval_exterior_pot ignores q entries" begin
+    r = 1.2
+    r_p = 0.7
+    N = 201
+    M = 243
+    Ez = 1.0
+    eps_r = 2.5
+
+    B = LaplaceMFS.singlesphere_B(r, r_p, M, N, eps_r)
+    rhs = LaplaceMFS.singlesphere_Ez_rhs(r, M, Ez, eps_r)
+    x = B \ rhs
+
+    centers = reshape([0.0, 0.0, 0.0], 1, 3)
+    targets = [
+        0.0  0.0   0.0   0.0;
+        0.0  0.3  -0.7   0.2;
+        1.5  1.3  -1.4   2.0
+    ]
+
+    u_full = LaplaceMFS.eval_exterior_pot(centers, N, x, r_p, 1e-12, targets)
+
+    x_pert = copy(x)
+    x_pert[N+1:2N] .= randn(N) # perturb q-block only
+    u_pert = LaplaceMFS.eval_exterior_pot(centers, N, x_pert, r_p, 1e-12, targets)
+    @test u_full ≈ u_pert atol = 1e-14
+
+    u_ponly = LaplaceMFS.eval_exterior_pot(centers, N, x[1:N], r_p, 1e-12, targets)
+    @test u_full ≈ u_ponly atol = 1e-14
 end
 
 @testset "single-sphere analytic helpers" begin

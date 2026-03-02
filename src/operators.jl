@@ -91,7 +91,7 @@ function _fmm_left_blocks(
     ntrg = size(targets, 2)
     dn = Vector{Float64}(undef, ntrg)
     @inbounds for i in 1:ntrg
-        dn[i] = -inv4pi * (
+        dn[i] = inv4pi * (
             normals[1, i] * grad[1, i] +
             normals[2, i] * grad[2, i] +
             normals[3, i] * grad[3, i]

@@ -75,7 +75,7 @@ function singlesphere_Ez_rhs(r::T, M::Int, Ez::T, eps_r::T) where T
     _ = r
 
     for i in 1:M
-        rhs[M + i] = Ez * (eps_r - 1) * pts_M[i, 3]
+        rhs[M + i] = - Ez * (eps_r - 1) * pts_M[i, 3]
     end
 
     return rhs
@@ -89,7 +89,7 @@ function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T})
     _ = centers
     for s in 1:nspheres
         for i in 1:M
-            rhs[(s - 1) * 2M + M + i] = Ez * (eps_r - 1) * pts_M[i, 3]
+            rhs[(s - 1) * 2M + M + i] = - Ez * (eps_r - 1) * pts_M[i, 3]
         end
     end
     return rhs
