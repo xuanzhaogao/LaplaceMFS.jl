@@ -1,6 +1,6 @@
 module LaplaceMFS
 
-using LinearAlgebra, KrylovKit, SparseArrays
+using LinearAlgebra, Krylov, SparseArrays
 using LinearMaps, FMM3D
 using Artifacts, DelimitedFiles, Printf
 
