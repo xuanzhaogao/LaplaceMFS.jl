@@ -58,3 +58,61 @@ end
     u_img2 = LaplaceMFS.double_sphere_image_potential(targets, centers, coeffs)
     @test u_img2 ≈ u_img rtol = 1e-14 atol = 1e-14
 end
+
+@testset "single-sphere forward point+line images" begin
+    center = [0.0, 0.0, 0.0]
+    source = [0.0, 0.0, 1.5]
+
+    out = LaplaceMFS.single_sphere_forward_point_line_images(
+        center, 1.0, 0.4, 1.0, source; n_line = 8, cutoff = 0.0
+    )
+    @test length(out.q) == 9
+    @test size(out.x) == (3, 9)
+    @test out.q[1] ≈ -0.4 / 1.5 atol = 1e-12
+    @test out.x[:, 1] ≈ [0.0, 0.0, 2 / 3] atol = 1e-12
+    @test all(abs.(out.x[1, :]) .< 1e-14)
+    @test all(abs.(out.x[2, :]) .< 1e-14)
+    @test minimum(out.x[3, :]) >= -1e-14
+    @test maximum(out.x[3, :]) <= (2 / 3 + 1e-14)
+
+    out_point_only = LaplaceMFS.single_sphere_forward_point_line_images(
+        center, 1.0, 1.0, 1.0, source; n_line = 8, cutoff = 0.0
+    )
+    @test length(out_point_only.q) == 1
+    @test size(out_point_only.x) == (3, 1)
+
+    out_cut = LaplaceMFS.single_sphere_forward_point_line_images(
+        center, 1.0, 0.4, 1.0, source; n_line = 8, cutoff = 1.0
+    )
+    @test isempty(out_cut.q)
+    @test size(out_cut.x) == (3, 0)
+end
+
+@testset "double-sphere forward reflections (point-only chain)" begin
+    centers = [0.0 0.0 0.0; 0.0 0.0 3.0]
+    radii = (1.0, 1.0)
+    gammas = (0.5, 0.2)
+    source = [0.0, 0.0, 1.5]
+
+    out1 = LaplaceMFS.double_sphere_forward_point_line_images(
+        centers, radii, gammas, 1.0, source; n_line = 0, n_reflections = 1, cutoff = 0.0
+    )
+    @test length(out1.q1) == 1
+    @test length(out1.q2) == 1
+    @test size(out1.x1) == (3, 1)
+    @test size(out1.x2) == (3, 1)
+    @test out1.q1[1] ≈ -gammas[1] * radii[1] / 1.5 atol = 1e-12
+    @test out1.q2[1] ≈ -gammas[2] * radii[2] / 1.5 atol = 1e-12
+
+    out3 = LaplaceMFS.double_sphere_forward_point_line_images(
+        centers, radii, gammas, 1.0, source; n_line = 0, n_reflections = 3, cutoff = 0.0
+    )
+    @test length(out3.q1) == 3
+    @test length(out3.q2) == 3
+    @test size(out3.x1) == (3, 3)
+    @test size(out3.x2) == (3, 3)
+
+    @test_throws ArgumentError LaplaceMFS.double_sphere_forward_point_line_images(
+        centers, radii, gammas, 1.0, source; n_line = 0, n_reflections = 0
+    )
+end
