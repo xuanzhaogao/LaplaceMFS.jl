@@ -10,6 +10,20 @@ function _stack_columns(cols::Vector{Vector{T}}) where {T}
     return X
 end
 
+function _scale_image_vectors(v::AbstractVector, coeffs::AbstractVector)
+    length(v) == 3 || throw(DimensionMismatch("vector source must have length 3"))
+    T = promote_type(eltype(v), eltype(coeffs))
+    vT = T.(v)
+    out = Matrix{T}(undef, 3, length(coeffs))
+    @inbounds for j in eachindex(coeffs)
+        cj = T(coeffs[j])
+        out[1, j] = cj * vT[1]
+        out[2, j] = cj * vT[2]
+        out[3, j] = cj * vT[3]
+    end
+    return out
+end
+
 function _point_along_center_source_line(center::AbstractVector{T}, source::AbstractVector{T}, r_s::T, dist::T) where {T<:Real}
     t = dist / r_s
     return [
@@ -200,6 +214,69 @@ function double_sphere_forward_point_line_images(
     end
 
     return (; q1 = q1_all, x1 = x1_all, q2 = q2_all, x2 = x2_all)
+end
+
+"""
+    single_sphere_forward_point_line_dipole_images(center, radius, gamma, p, source; n_line=32, cutoff=0.0)
+
+Generate forward image dipoles for a single sphere using the same image positions
+and scalar reflection coefficients as `single_sphere_forward_point_line_images`.
+
+Returns a named tuple `(p, x)` where `p` is a `3 x N` matrix of dipole vectors
+and `x` is a `3 x N` matrix of image positions.
+"""
+function single_sphere_forward_point_line_dipole_images(
+    center::AbstractVector{<:Real},
+    radius::Real,
+    gamma::Real,
+    p::AbstractVector,
+    source::AbstractVector{<:Real};
+    n_line::Int = 32,
+    cutoff::Real = 0.0,
+)
+    length(p) == 3 || throw(DimensionMismatch("dipole source must have length 3"))
+    PT = promote_type(eltype(p), eltype(center), eltype(source), typeof(radius), typeof(gamma))
+    unit_source = one(PT)
+    out = single_sphere_forward_point_line_images(
+        center, radius, gamma, unit_source, source; n_line = n_line, cutoff = cutoff
+    )
+    return (; p = _scale_image_vectors(p, out.q), x = out.x)
+end
+
+"""
+    double_sphere_forward_point_line_dipole_images(centers, radii, gammas, p0, source;
+                                                   n_line=32, n_reflections=1, cutoff=0.0)
+
+Generate forward dipole images for two spheres using the same image positions and
+scalar reflection coefficients as `double_sphere_forward_point_line_images`.
+
+Returns `(p1, x1, p2, x2)`, where `p1/x1` are the dipole vectors and image
+positions in sphere 1 and `p2/x2` are the corresponding outputs in sphere 2.
+"""
+function double_sphere_forward_point_line_dipole_images(
+    centers::AbstractMatrix{<:Real},
+    radii,
+    gammas,
+    p0::AbstractVector,
+    source::AbstractVector{<:Real};
+    n_line::Int = 32,
+    n_reflections::Int = 1,
+    cutoff::Real = 0.0,
+)
+    length(p0) == 3 || throw(DimensionMismatch("dipole source must have length 3"))
+    PT = promote_type(eltype(p0), eltype(centers), eltype(source), eltype(radii), eltype(gammas))
+    unit_source = one(PT)
+    out = double_sphere_forward_point_line_images(
+        centers, radii, gammas, unit_source, source;
+        n_line = n_line, n_reflections = n_reflections, cutoff = cutoff,
+    )
+    return (
+        ;
+        p1 = _scale_image_vectors(p0, out.q1),
+        x1 = out.x1,
+        p2 = _scale_image_vectors(p0, out.q2),
+        x2 = out.x2,
+    )
 end
 
 """

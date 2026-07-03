@@ -116,3 +116,53 @@ end
         centers, radii, gammas, 1.0, source; n_line = 0, n_reflections = 0
     )
 end
+
+@testset "single-sphere forward dipole images reuse point-charge positions" begin
+    center = [0.0, 0.0, 0.0]
+    source = [0.0, 0.0, 1.5]
+    p0 = [1.0, -2.0, 3.0]
+
+    out_q = LaplaceMFS.single_sphere_forward_point_line_images(
+        center, 1.0, 0.4, 1.0, source; n_line = 8, cutoff = 0.0
+    )
+    out_p = LaplaceMFS.single_sphere_forward_point_line_dipole_images(
+        center, 1.0, 0.4, p0, source; n_line = 8, cutoff = 0.0
+    )
+
+    @test size(out_p.x) == size(out_q.x)
+    @test out_p.x ≈ out_q.x atol = 1e-14 rtol = 1e-14
+    @test size(out_p.p) == (3, length(out_q.q))
+
+    for j in eachindex(out_q.q)
+        @test out_p.p[:, j] ≈ out_q.q[j] .* p0 atol = 1e-14 rtol = 1e-14
+    end
+end
+
+@testset "double-sphere forward dipole images reuse point-charge positions" begin
+    centers = [0.0 0.0 0.0; 0.0 0.0 3.0]
+    radii = (1.0, 1.0)
+    gammas = (0.5, 0.2)
+    source = [0.0, 0.0, 1.5]
+    p0 = [0.0, 0.0, 2.0]
+
+    out_q = LaplaceMFS.double_sphere_forward_point_line_images(
+        centers, radii, gammas, 1.0, source; n_line = 0, n_reflections = 3, cutoff = 0.0
+    )
+    out_p = LaplaceMFS.double_sphere_forward_point_line_dipole_images(
+        centers, radii, gammas, p0, source; n_line = 0, n_reflections = 3, cutoff = 0.0
+    )
+
+    @test size(out_p.x1) == size(out_q.x1)
+    @test size(out_p.x2) == size(out_q.x2)
+    @test out_p.x1 ≈ out_q.x1 atol = 1e-14 rtol = 1e-14
+    @test out_p.x2 ≈ out_q.x2 atol = 1e-14 rtol = 1e-14
+    @test size(out_p.p1) == (3, length(out_q.q1))
+    @test size(out_p.p2) == (3, length(out_q.q2))
+
+    for j in eachindex(out_q.q1)
+        @test out_p.p1[:, j] ≈ out_q.q1[j] .* p0 atol = 1e-14 rtol = 1e-14
+    end
+    for j in eachindex(out_q.q2)
+        @test out_p.p2[:, j] ≈ out_q.q2[j] .* p0 atol = 1e-14 rtol = 1e-14
+    end
+end
