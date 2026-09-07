@@ -22,9 +22,8 @@
    applied to `randn` vectors. §3.5 closes that for two well-separated spheres —
    the assembled operator converges to the exact single-sphere answer at the
    theoretically correct `O(R⁻⁴)` rate, and `Ghat` + GMRES + FMM reproduces the
-   direct least-squares to 8e-14. §3.7 extends this to a `0.05a` gap by adjudicating
-   against `HybridMD`. What remains open there is **accuracy, not correctness**: at
-   near contact the MFS discretization error reaches 2.4e-04 at `N = 1059`.
+   direct least-squares to 8e-14. §3.7 extends this to a `0.05a` sphere–sphere gap,
+   where both MFS solve paths agree with `HybridMD` to **9e-10**.
 
 3. **The near field converges, but only with the right `r_p`, and it is expensive.**
    At `d/a = 1.2` the method reaches **4.8e-07** with `N = 5001` and `r_p = 0.7`,
@@ -44,18 +43,19 @@
 6. **The one-body preconditioning is correct, including at a `0.05a` gap.**
    `Ghat = G·B̂ + (I − P)` (confirmed to 7.7e-13), so it enforces `P(Gλ − rhs) = 0`
    rather than the full normal equations — a real difference, but not a harmful one.
-   Adjudicated against `HybridMD`: both `Ghat` and the direct least-squares solve
-   agree with the independent reference to the same 2.4e-04, while differing from
-   each other by at most 3.4e-06. The preconditioning discrepancy sits **70× below**
-   the discretization error and favours neither solve. The 108% divergence in the
-   coefficient vectors is a null-space artefact. See §3.7.
+   Adjudicated against `HybridMD`: as the proxy set is refined, `Ghat` and the direct
+   least-squares solve converge to each other (1.7e-10) *and* to the independent
+   reference (9e-10), agreeing to twelve digits at `N = 2114`. The projection changes
+   which solution is drawn from the near-null-space, not which field results; the
+   108% divergence in the coefficient vectors is a null-space artefact. See §3.7.
 
 7. **`HybridMD`'s shipped precision table caps it far below what its algorithm can
    deliver.** With `p`, `im` and the GMRES tolerance freed from `Precisionsetting.h`,
-   it reproduces converged MFS to **twelve digits** at a `1a` gap. At the shipped
-   settings it carries ~1e-04 error and looks unusable as a reference. This is
-   defect 9 in §2.2 and the single most important thing to know when using it as an
-   oracle.
+   it reproduces converged MFS to **twelve digits**. At the shipped settings it
+   carries ~1e-04 error. The limiting knob is **`im`**, the image-quadrature count:
+   the table's `im = 3` is a two-point rule for the line image, and `im = 3 → 6`
+   gains six digits. Sweeping `p` alone while leaving `im = 3` yields a
+   confident-looking but wrong reference. Defect 9 in §2.2.
 
 ---
 
@@ -300,7 +300,7 @@ truncation at order `p` means accuracy degrades sharply near a surface.
 | 6 | `orad[i] = r[i] − c_lj/2`, and `c_lj` is **doubled** on read (`read_para.cpp:141`). | The *dielectric* radius is not the input radius. `Colloid_Radius 1.2` with `clj/2 0.2` gives a sphere of radius **0.8**. The easiest way to silently compare two different geometries. |
 | 7 | Only two colloid species and two ion species, each with a single charge/radius/ε. | At most two distinct `(radius, ε)` pairs per run. |
 | 8 | `Coulomb_accelerations_Hybrid_static.cpp` exists, is in no Makefile, and uses a **different** (ε_s-divided) normalization. | Do not mix the two when comparing. |
-| 9 | **The shipped `Precisionsetting.h` table caps accuracy far below the algorithm.** `order_p` never exceeds 6, `im_num` never exceeds 4 (a Kelvin image plus a *3-point* line quadrature), and `gmres_tol` never exceeds 6 digits. | At table settings the method carries ~1e-04 error and appears unusable as a reference. Overriding `p`, `im` and `gmrestol` directly — they are plain globals, set after `set_precision` and before `allocate_dynamic` — makes it reproduce converged MFS to **twelve digits** (§3.7). The limiting knob is `im`, not `p`: at a `1a` gap, `im = 3 → 6` gains six digits. |
+| 9 | **The shipped `Precisionsetting.h` table caps accuracy far below the algorithm.** `order_p` never exceeds 6, `im_num` never exceeds 4, and `gmres_tol` never exceeds 6 digits. | At table settings the method carries ~1e-04 error and appears unusable as a reference. Overriding `p`, `im` and `gmrestol` directly — they are plain globals, set after `set_precision` and before `allocate_dynamic` — makes it reproduce converged MFS to **twelve digits** (§3.7). **The limiting knob is `im`, not `p`**: `im` is one Kelvin image plus an `im − 1` point Gauss–Jacobi quadrature of the line image, so the table's `im = 3` is a two-point rule. `im = 3 → 6` gains six digits; `im ≥ 6` is stable through `im = 64`. Sweeping `p` with `im = 3` converges to a value 2.4e-04 from the truth. |
 
 **Electrostatic domain.** `Rshell`, `QM`, `RM` and `epsi_M` appear **zero times** in
 the solver. `Rshell` is purely mechanical (LJ wall, cell binning, RDF, dump bounds);
@@ -605,10 +605,17 @@ using the boundary residual to decide. An independent oracle is required.
 `HybridMD` is that oracle — but only once its accuracy knobs are freed from the
 shipped precision table (defect 9 in §2.2). At the table's settings (`p ≤ 6`,
 `im ≤ 4`, GMRES to 1e-06) it carries ~1e-04 error. The knobs are plain globals;
-setting `p`, `im` and `gmrestol` after `set_precision` and before
-`allocate_dynamic` gives a convergent method.
+set `p`, `im` and `gmrestol` after `set_precision` and before `allocate_dynamic`.
 
-**Control, `1a` gap.** With `p = 20`, `im ≥ 10`, GMRES to 1e-12, `HybridMD`
+> **The limiting knob is `im`, not `p`.** `im` is the number of image sources per
+> (charge, sphere) pair: one Kelvin point image plus an `im − 1` point Gauss–Jacobi
+> quadrature of the line image. The table's `im = 3` is a **two-point** rule. Going
+> `im = 3 → 6` gains six digits; `im ≥ 6` is converged and stable to twelve digits
+> through `im = 64`. Sweeping `p` alone while leaving `im = 3` produces a
+> confident-looking but wrong reference — the answer converges in `p` to a value
+> that is 2.4e-04 away from the truth.
+
+**Control, `1a` gap.** With `p = 20`, `im ≥ 6`, GMRES to 1e-12, `HybridMD`
 reproduces converged MFS at five exterior targets to **every printed digit**:
 
 ```
@@ -618,38 +625,49 @@ MFS       -0.004005725937  0.000323354212  0.001332353924  0.000605745006  0.000
 
 Two entirely independent discretizations — MFS proxy sources against image charges
 plus a spherical-harmonic method of moments — agreeing to twelve digits. This also
-confirms the `φ_MFS = φ_HybridMD / (4π ε_s)` conversion of §1.6 exactly. The limiting
-knob is `im`, not `p`: raising `im` from 3 to 6 gains six digits.
+confirms the `φ_MFS = φ_HybridMD / (4π ε_s)` conversion of §1.6 exactly.
 
-**The contested case, `0.05a` gap.** `HybridMD` converged in `(p, im)` at `p ≥ 24`
-(changes below 1e-09), against both MFS solves at `M = 1302`, `N = 1059`:
+**The contested case, `0.05a` gap.** `HybridMD` converged at `p ≥ 40`, `im ≥ 6`,
+GMRES 1e-12. Both MFS solves converge to it as the proxy set is refined:
 
-| target | HybridMD (converged) | MFS dense LS | MFS `Ghat` | LS rel err | `Ghat` rel err |
+| M | N | `r_p` | `Ghat` vs ref | dense LS vs ref | `Ghat` vs LS |
 |---|---|---|---|---|---|
-| t1 | −0.004157593276 | −0.004156595548 | −0.004156595610 | 2.40e-04 | 2.40e-04 |
-| t2 | 0.001662583264 | 0.001662583330 | 0.001662588984 | 4.0e-08 | 3.4e-06 |
-| t3 | 0.001069930657 | 0.001069724824 | 0.001069724752 | 1.92e-04 | 1.92e-04 |
-| t4 | 0.000895460383 | 0.000895478865 | 0.000895478849 | 2.06e-05 | 2.06e-05 |
-| t5 | 0.000691708886 | 0.000691702429 | 0.000691702355 | 9.3e-06 | 9.4e-06 |
+| 614 | 513 | 0.50 | 1.06e-06 | 2.71e-06 | 3.64e-06 |
+| 614 | 513 | 0.70 | 2.06e-06 | 6.82e-07 | 1.97e-06 |
+| 1302 | 1059 | 0.50 | 4.48e-07 | 7.45e-07 | 1.19e-06 |
+| 1302 | 1059 | 0.70 | 1.22e-07 | 3.99e-08 | 1.35e-07 |
+| 2666 | 2114 | 0.50 | 2.65e-09 | 6.09e-08 | 5.82e-08 |
+| 2666 | 2114 | 0.70 | **9.13e-10** | **7.95e-10** | **1.69e-10** |
 
-**Both MFS solutions are equally close to the truth.** They differ from the oracle by
-up to 2.4e-04 and from each other by at most 3.4e-06 — the preconditioning
-discrepancy sits **70× below** the discretization error, and favours neither solve on
-any target.
+At the finest resolution all three agree to twelve digits:
+
+```
+target   HybridMD          MFS dense LS      MFS Ghat
+t1      -0.004156595607   -0.004156595607   -0.004156595607
+t2       0.001662586859    0.001662586855    0.001662586855
+t3       0.001069724756    0.001069724755    0.001069724756
+t4       0.000895478853    0.000895478852    0.000895478853
+t5       0.000691702359    0.000691702358    0.000691702359
+```
 
 **Conclusion: the one-body preconditioning is correct, including at a `0.05a` gap.**
-The 108% divergence in `λ` is a null-space artefact — the map `λ → field` is so
-ill-conditioned near contact that wholly different coefficient vectors produce the
-same field to 3e-06. What limits accuracy there is MFS *discretization*, exactly as
-the cost law of §3.3 predicts for a `0.05a` gap. `Ghat`'s larger least-squares
-residual is likewise not a defect: §3.4 already established that a smaller residual
+`Ghat` and the direct least-squares solve converge to each other (1.7e-10) *and* to
+an independent method (9e-10). The `(I − P)` projection changes which solution is
+selected from the near-null-space, not which field is produced.
+
+The 108% divergence in `λ` reported above is therefore a pure null-space artefact:
+near contact the map `λ → field` is so ill-conditioned that wholly different
+coefficient vectors produce the same field to 1e-09. `Ghat`'s larger least-squares
+residual is likewise not a defect — §3.4 already established that a smaller residual
 does not imply a better field, and here the smaller-residual solve is not the more
 accurate one.
 
-**Consequence for the plan.** `HybridSolve` is still needed, but for its original
-purpose — measuring MFS discretization error in the near-touching regime, where no
-analytic answer exists — not to arbitrate between two solve paths that in fact agree.
-The probe built for this section is most of that driver already.
+**Consequence for the plan.** `HybridSolve` remains worth building, but its role is
+narrower than assumed: an independent reference for configurations with no analytic
+answer, not an arbiter between MFS solve paths, which agree. Note also that MFS is
+accurate to 1e-09 at a `0.05a` sphere–sphere gap with `N = 2114` — the steep cost law
+of §3.3 is about a point charge approaching a *single* surface, and does not
+translate directly into a sphere–sphere gap penalty.
 
 **Licensing note.** `HybridMD` is GPL-3.0 and this package is MIT, so the probe
 source is deliberately *not* vendored here. It belongs in `HybridSolve`, which
