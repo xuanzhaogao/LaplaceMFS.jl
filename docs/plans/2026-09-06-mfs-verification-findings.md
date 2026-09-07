@@ -40,6 +40,14 @@
    *force* path is broken and its shipped default precision silently disables the
    image charges. Both are documented below.
 
+6. **The one-body preconditioning is verified down to `1a` gaps, and demonstrably
+   departs from least squares below about `0.5a`.** `Ghat = G·B̂ + (I − P)` (confirmed
+   to 7.7e-13), so it enforces `P(Gλ − rhs) = 0` rather than the full normal
+   equations. At wide separation this is invisible; at a `0.05a` gap the coefficient
+   vectors differ by 108% and `Ghat`'s least-squares residual is 1.8× larger. The
+   fields still agree to 3.6e-06, and **neither solution is validated there** — see
+   §3.7. This is the concrete requirement for `HybridSolve`.
+
 ---
 
 ## 1. The mathematics
@@ -520,6 +528,84 @@ is the entire promise of the second-kind reformulation, and it holds.
 while a charge at `d/a = 2` needs ≈40, so the scaling runs are deliberately
 under-resolved — they measure iteration count and time, not accuracy. The
 near-touching regime (gaps well below `1a`) is still untested.
+
+### 3.7 What the one-body preconditioning actually solves
+
+§3.5 and §3.6 compare `Ghat` + GMRES against the direct least-squares solve, but
+only at separations where the spheres barely interact. That is the regime in which
+the preconditioner is *least* stressed, so on its own it does not verify the scheme.
+This section tests it properly.
+
+**The structural identity.** Write `B̂ = blkdiag(B⁺)` for the block-diagonal one-body
+pseudo-inverse and `P = blkdiag(B B⁺)` for the orthogonal projector onto each
+sphere's one-body range. Then
+
+```
+G·B̂ = P + (G − B_blkdiag)·B̂           while           Ghat = I + (G − B_blkdiag)·B̂
+  ⟹   Ghat = G·B̂ + (I − P)
+```
+
+Verified numerically (2 spheres, `M = 243`, `N = 201`, `R/a = 3`):
+
+```
+‖Ghat − (G·B̂ + I − P)‖ / ‖Ghat‖ = 7.69e-13
+‖I − P‖ = 12.96          rank deficiency per sphere = 2M − 2N = 84
+```
+
+Splitting `μ = μ_R + μ_⊥` along that projector, the `μ_⊥` equation only fixes `μ_⊥`
+(and `B̂` annihilates it), while the `μ_R` equation reduces to
+
+```
+P·(Gλ − rhs) = 0          not          G*(Gλ − rhs) = 0
+```
+
+**So `Ghat` enforces the interface conditions only within the one-body range, not in
+the full least-squares sense.** The discarded complement is not a technicality — 84
+dimensions per sphere here, with norm ≈ 13. Physically this is defensible: the
+discarded residual is the part no one-body proxy basis can represent. But it means
+`Ghat` and `G \ rhs` are different problems whose solutions need not agree, and the
+discrepancy is carried by the coupling block `(G − B_blkdiag)`.
+
+**Where that matters.** Two spheres, `M = 614`, `N = 513`, `r_p = 0.5`, one exterior
+point charge; `Ghat` + GMRES against the direct dense least-squares solve:
+
+| `R/a` | gap/`a` | GMRES | ‖Δλ‖/‖λ‖ | ‖Δu‖/‖u‖ | LS resid (dense) | LS resid (`Ghat`) |
+|---|---|---|---|---|---|---|
+| 8.00 | 6.00 | 4 | 4.5e-08 | 5.7e-14 | 4.399e-06 | 4.399e-06 |
+| 4.00 | 2.00 | 5 | 4.2e-08 | 5.5e-14 | 4.387e-06 | 4.387e-06 |
+| 3.00 | 1.00 | 6 | 7.1e-08 | 1.2e-13 | 4.370e-06 | 4.370e-06 |
+| 2.50 | 0.50 | 7 | 2.1e-04 | 5.8e-10 | 4.353e-06 | 4.353e-06 |
+| 2.20 | 0.20 | 9 | 2.3e-01 | 6.3e-08 | 5.151e-06 | 5.156e-06 |
+| 2.05 | 0.05 | 14 | **1.08** | 3.6e-06 | 6.526e-05 | **1.162e-04** |
+
+**Down to `1a` gaps the preconditioning is verified.** Fields agree to 1e-13 and both
+solves report identical least-squares residuals to four digits — the `(I − P)`
+discrepancy is invisible. Everything claimed in §3.5 and §3.6 stands.
+
+**Below about `0.5a` it departs.** At a `0.05a` gap the coefficient vectors are 108%
+different — unrelated as vectors — and `Ghat`'s least-squares residual is **1.8×
+larger** than the direct solve's. This is the projection making itself felt exactly
+where the coupling block stops being small.
+
+Two qualifications matter:
+
+- **The fields still agree to 3.6e-06** even where the coefficients are unrelated.
+  The map `λ → field` is so ill-conditioned that very different coefficient vectors
+  produce nearly the same physical field. So this is not evidence that `Ghat` is
+  *wrong*.
+- **Neither solution is validated there.** The direct solve has the smaller boundary
+  residual, but §3.4 is precisely the finding that a smaller residual does not imply
+  a better field. There is no oracle at a `0.05a` gap.
+
+GMRES iterations also climb 4 → 14 as the gap closes, so the second-kind property
+degrades gracefully rather than holding flat.
+
+**Consequence for the plan.** The near-touching regime is no longer merely
+"untested for want of an oracle" — the two solve paths *measurably disagree* there,
+and nothing currently available can adjudicate between them. That is a concrete
+requirement for `HybridSolve`, not a precautionary one.
+
+Reproduce with `docs/figures/precond.jl`.
 
 ---
 
