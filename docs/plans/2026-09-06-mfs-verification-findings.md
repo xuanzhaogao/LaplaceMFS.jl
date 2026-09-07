@@ -450,6 +450,60 @@ Two further results:
 regime where §3.3's cost law bites, nor about many-sphere FMM at scale. Those remain
 rungs 2–4 and still require `HybridSolve`.
 
+### 3.6 Many spheres and scale
+
+Three checks beyond the two-body case. Spheres are placed on a cubic lattice with
+sphere 1 at the origin and a single exterior point charge at `d/a = 2` from it.
+
+**Close-packed FMM agreement.** 8 spheres, lattice spacing `3a` (surface gap `1a`),
+`M = 243`, `N = 201`. Dense `Ghat` and `Ghat_fmm` both converge in 8 iterations, and
+their evaluated fields agree to
+
+```
+|u_fmm − u_dense| / |u_dense| = 2.54e-15
+```
+
+**The O(L⁻⁴) law survives many bodies.** 27 spheres on a widening lattice,
+`M = 614`, `N = 513`, compared against the exact single-sphere Legendre series:
+
+| spacing | rel. vs. 1-sphere | iters |
+|---|---|---|
+| 12 | 1.81e-03 | 4 |
+| 24 | 1.21e-04 | 4 |
+| 48 | 7.79e-06 | 3 |
+| 96 | 4.95e-07 | 3 |
+
+Ratios per doubling are 15.0, 15.5, 15.7 — the same `O(L⁻⁴)` decay found in §3.5,
+now with 26 neighbours rather than one.
+
+**Iteration count is flat with problem size.** Cubic lattice at spacing `3a`
+(surface gap `1a`), `M = 243`, `N = 201`, `Ghat_fmm` + GMRES to `rtol = 1e-10`:
+
+| spheres | unknowns | iters | solve (s) | µs/unknown/iter |
+|---|---|---|---|---|
+| 8 | 3,888 | 7 | 3.31 | 121.5 |
+| 27 | 13,122 | 7 | 6.24 | 68.0 |
+| 64 | 31,104 | 7 | 6.81 | 31.3 |
+| 125 | 60,750 | 8 | 11.52 | 23.7 |
+| 216 | 104,976 | 8 | 9.48 | 11.3 |
+| 512 | 248,832 | 8 | 6.57 | 3.3 |
+
+**7 → 8 iterations across a 64× growth in problem size**, at `1a` surface gaps. That
+is the entire promise of the second-kind reformulation, and it holds.
+
+> **Do not over-read the timings.** Per-unknown cost *falls* 37× across the sweep and
+> total solve time is flat, which means every one of these problems is dominated by
+> fixed overheads — FMM tree setup, per-sphere dense work, allocation inside the
+> `LinearMap` — not by the far-field kernel. This establishes that the solver handles
+> 512 spheres comfortably and is **not worse** than `O(N)` up to 250k unknowns; it
+> does **not** measure the asymptotic scaling. The small-`ns` end also looks worth
+> profiling: 59 ms per sphere per iteration at `ns = 8` is a lot for a 486×402 matvec.
+
+**Scope.** At `M = 243`, `N = 201` the proxy set carries content only to degree ≈20
+while a charge at `d/a = 2` needs ≈40, so the scaling runs are deliberately
+under-resolved — they measure iteration count and time, not accuracy. The
+near-touching regime (gaps well below `1a`) is still untested.
+
 ---
 
 ## 4. High-level plan
