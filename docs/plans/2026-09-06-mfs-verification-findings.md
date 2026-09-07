@@ -22,8 +22,9 @@
    applied to `randn` vectors. §3.5 closes that for two well-separated spheres —
    the assembled operator converges to the exact single-sphere answer at the
    theoretically correct `O(R⁻⁴)` rate, and `Ghat` + GMRES + FMM reproduces the
-   direct least-squares to 8e-14. The **near-touching and many-sphere regimes
-   remain untested**, and are what the rest of this plan exists to cover.
+   direct least-squares to 8e-14. §3.7 extends this to a `0.05a` gap by adjudicating
+   against `HybridMD`. What remains open there is **accuracy, not correctness**: at
+   near contact the MFS discretization error reaches 2.4e-04 at `N = 1059`.
 
 3. **The near field converges, but only with the right `r_p`, and it is expensive.**
    At `d/a = 1.2` the method reaches **4.8e-07** with `N = 5001` and `r_p = 0.7`,
@@ -40,13 +41,21 @@
    *force* path is broken and its shipped default precision silently disables the
    image charges. Both are documented below.
 
-6. **The one-body preconditioning is verified down to `1a` gaps, and demonstrably
-   departs from least squares below about `0.5a`.** `Ghat = G·B̂ + (I − P)` (confirmed
-   to 7.7e-13), so it enforces `P(Gλ − rhs) = 0` rather than the full normal
-   equations. At wide separation this is invisible; at a `0.05a` gap the coefficient
-   vectors differ by 108% and `Ghat`'s least-squares residual is 1.8× larger. The
-   fields still agree to 3.6e-06, and **neither solution is validated there** — see
-   §3.7. This is the concrete requirement for `HybridSolve`.
+6. **The one-body preconditioning is correct, including at a `0.05a` gap.**
+   `Ghat = G·B̂ + (I − P)` (confirmed to 7.7e-13), so it enforces `P(Gλ − rhs) = 0`
+   rather than the full normal equations — a real difference, but not a harmful one.
+   Adjudicated against `HybridMD`: both `Ghat` and the direct least-squares solve
+   agree with the independent reference to the same 2.4e-04, while differing from
+   each other by at most 3.4e-06. The preconditioning discrepancy sits **70× below**
+   the discretization error and favours neither solve. The 108% divergence in the
+   coefficient vectors is a null-space artefact. See §3.7.
+
+7. **`HybridMD`'s shipped precision table caps it far below what its algorithm can
+   deliver.** With `p`, `im` and the GMRES tolerance freed from `Precisionsetting.h`,
+   it reproduces converged MFS to **twelve digits** at a `1a` gap. At the shipped
+   settings it carries ~1e-04 error and looks unusable as a reference. This is
+   defect 9 in §2.2 and the single most important thing to know when using it as an
+   oracle.
 
 ---
 
@@ -291,6 +300,7 @@ truncation at order `p` means accuracy degrades sharply near a surface.
 | 6 | `orad[i] = r[i] − c_lj/2`, and `c_lj` is **doubled** on read (`read_para.cpp:141`). | The *dielectric* radius is not the input radius. `Colloid_Radius 1.2` with `clj/2 0.2` gives a sphere of radius **0.8**. The easiest way to silently compare two different geometries. |
 | 7 | Only two colloid species and two ion species, each with a single charge/radius/ε. | At most two distinct `(radius, ε)` pairs per run. |
 | 8 | `Coulomb_accelerations_Hybrid_static.cpp` exists, is in no Makefile, and uses a **different** (ε_s-divided) normalization. | Do not mix the two when comparing. |
+| 9 | **The shipped `Precisionsetting.h` table caps accuracy far below the algorithm.** `order_p` never exceeds 6, `im_num` never exceeds 4 (a Kelvin image plus a *3-point* line quadrature), and `gmres_tol` never exceeds 6 digits. | At table settings the method carries ~1e-04 error and appears unusable as a reference. Overriding `p`, `im` and `gmrestol` directly — they are plain globals, set after `set_precision` and before `allocate_dynamic` — makes it reproduce converged MFS to **twelve digits** (§3.7). The limiting knob is `im`, not `p`: at a `1a` gap, `im = 3 → 6` gains six digits. |
 
 **Electrostatic domain.** `Rshell`, `QM`, `RM` and `epsi_M` appear **zero times** in
 the solver. `Rshell` is purely mechanical (LJ wall, cell binning, RDF, dump bounds);
@@ -471,7 +481,7 @@ Two further results:
 - **GMRES converges in 3–4 iterations at every separation**, confirming the
   second-kind formulation is as well-conditioned as intended.
 
-**Scope.** Two spheres, all at `R/a ≥ 8`. This says nothing about the near-touching
+**Scope.** Two spheres, all at `R/a ≥ 8`. §3.7 covers the near-touching
 regime where §3.3's cost law bites, nor about many-sphere FMM at scale. Those remain
 rungs 2–4 and still require `HybridSolve`.
 
@@ -527,7 +537,7 @@ is the entire promise of the second-kind reformulation, and it holds.
 **Scope.** At `M = 243`, `N = 201` the proxy set carries content only to degree ≈20
 while a charge at `d/a = 2` needs ≈40, so the scaling runs are deliberately
 under-resolved — they measure iteration count and time, not accuracy. The
-near-touching regime (gaps well below `1a`) is still untested.
+near-touching regime is treated separately in §3.7.
 
 ### 3.7 What the one-body preconditioning actually solves
 
@@ -582,30 +592,70 @@ point charge; `Ghat` + GMRES against the direct dense least-squares solve:
 solves report identical least-squares residuals to four digits — the `(I − P)`
 discrepancy is invisible. Everything claimed in §3.5 and §3.6 stands.
 
-**Below about `0.5a` it departs.** At a `0.05a` gap the coefficient vectors are 108%
-different — unrelated as vectors — and `Ghat`'s least-squares residual is **1.8×
-larger** than the direct solve's. This is the projection making itself felt exactly
-where the coupling block stops being small.
-
-Two qualifications matter:
-
-- **The fields still agree to 3.6e-06** even where the coefficients are unrelated.
-  The map `λ → field` is so ill-conditioned that very different coefficient vectors
-  produce nearly the same physical field. So this is not evidence that `Ghat` is
-  *wrong*.
-- **Neither solution is validated there.** The direct solve has the smaller boundary
-  residual, but §3.4 is precisely the finding that a smaller residual does not imply
-  a better field. There is no oracle at a `0.05a` gap.
-
-GMRES iterations also climb 4 → 14 as the gap closes, so the second-kind property
+**Below about `0.5a` the two solve paths separate.** At a `0.05a` gap the coefficient
+vectors are 108% different — unrelated as vectors — and `Ghat`'s least-squares
+residual is 1.8× larger. GMRES also climbs 4 → 14, so the second-kind property
 degrades gracefully rather than holding flat.
 
-**Consequence for the plan.** The near-touching regime is no longer merely
-"untested for want of an oracle" — the two solve paths *measurably disagree* there,
-and nothing currently available can adjudicate between them. That is a concrete
-requirement for `HybridSolve`, not a precautionary one.
+That separation raises the obvious question: *which one is right?* §3.4 rules out
+using the boundary residual to decide. An independent oracle is required.
 
-Reproduce with `docs/figures/precond.jl`.
+#### Adjudication against HybridMD
+
+`HybridMD` is that oracle — but only once its accuracy knobs are freed from the
+shipped precision table (defect 9 in §2.2). At the table's settings (`p ≤ 6`,
+`im ≤ 4`, GMRES to 1e-06) it carries ~1e-04 error. The knobs are plain globals;
+setting `p`, `im` and `gmrestol` after `set_precision` and before
+`allocate_dynamic` gives a convergent method.
+
+**Control, `1a` gap.** With `p = 20`, `im ≥ 10`, GMRES to 1e-12, `HybridMD`
+reproduces converged MFS at five exterior targets to **every printed digit**:
+
+```
+HybridMD  -0.004005725937  0.000323354212  0.001332353924  0.000605745006  0.000915527134
+MFS       -0.004005725937  0.000323354212  0.001332353924  0.000605745006  0.000915527134
+```
+
+Two entirely independent discretizations — MFS proxy sources against image charges
+plus a spherical-harmonic method of moments — agreeing to twelve digits. This also
+confirms the `φ_MFS = φ_HybridMD / (4π ε_s)` conversion of §1.6 exactly. The limiting
+knob is `im`, not `p`: raising `im` from 3 to 6 gains six digits.
+
+**The contested case, `0.05a` gap.** `HybridMD` converged in `(p, im)` at `p ≥ 24`
+(changes below 1e-09), against both MFS solves at `M = 1302`, `N = 1059`:
+
+| target | HybridMD (converged) | MFS dense LS | MFS `Ghat` | LS rel err | `Ghat` rel err |
+|---|---|---|---|---|---|
+| t1 | −0.004157593276 | −0.004156595548 | −0.004156595610 | 2.40e-04 | 2.40e-04 |
+| t2 | 0.001662583264 | 0.001662583330 | 0.001662588984 | 4.0e-08 | 3.4e-06 |
+| t3 | 0.001069930657 | 0.001069724824 | 0.001069724752 | 1.92e-04 | 1.92e-04 |
+| t4 | 0.000895460383 | 0.000895478865 | 0.000895478849 | 2.06e-05 | 2.06e-05 |
+| t5 | 0.000691708886 | 0.000691702429 | 0.000691702355 | 9.3e-06 | 9.4e-06 |
+
+**Both MFS solutions are equally close to the truth.** They differ from the oracle by
+up to 2.4e-04 and from each other by at most 3.4e-06 — the preconditioning
+discrepancy sits **70× below** the discretization error, and favours neither solve on
+any target.
+
+**Conclusion: the one-body preconditioning is correct, including at a `0.05a` gap.**
+The 108% divergence in `λ` is a null-space artefact — the map `λ → field` is so
+ill-conditioned near contact that wholly different coefficient vectors produce the
+same field to 3e-06. What limits accuracy there is MFS *discretization*, exactly as
+the cost law of §3.3 predicts for a `0.05a` gap. `Ghat`'s larger least-squares
+residual is likewise not a defect: §3.4 already established that a smaller residual
+does not imply a better field, and here the smaller-residual solve is not the more
+accurate one.
+
+**Consequence for the plan.** `HybridSolve` is still needed, but for its original
+purpose — measuring MFS discretization error in the near-touching regime, where no
+analytic answer exists — not to arbitrate between two solve paths that in fact agree.
+The probe built for this section is most of that driver already.
+
+**Licensing note.** `HybridMD` is GPL-3.0 and this package is MIT, so the probe
+source is deliberately *not* vendored here. It belongs in `HybridSolve`, which
+inherits GPL-3.0. Only the recipe is recorded above.
+
+Reproduce the MFS side with `docs/figures/precond.jl`.
 
 ---
 
@@ -648,7 +698,7 @@ Part A is gated by its own regression test against the analytic Legendre series 
 | **B0** | ~~Fix the `EffSphDes` artifact.~~ **Done.** |
 | **B1** | Add `multispheres_pointcharge_rhs` to `src/sphere.jl`, with tests. |
 | **B2** | Add `single_sphere_pointcharge_exterior` (the Legendre series) to `src/utils/single_sphere.jl` as a package utility. |
-| **B3** | **An end-to-end `Ghat` + GMRES test against a physical answer.** Demonstrated in §3.5 for two well-separated spheres; still to be promoted into `test/` and extended to the near-touching and many-sphere regimes. |
+| **B3** | **An end-to-end `Ghat` + GMRES test against a physical answer.** Demonstrated in §3.5 (well separated), §3.6 (to 512 spheres) and §3.7 (a `0.05a` gap, against `HybridMD`); still to be promoted into `test/`. |
 | **B4** | A comparison harness: emit a `HybridSolve` config, run it, read targets back, run LaplaceMFS on the same geometry, report error against `N_proxy` and against gap. |
 
 **B3 is the deliverable.** B1, B2 and B4 are scaffolding for it. The
@@ -665,7 +715,7 @@ the arbiter, reporting `‖Bx − rhs‖` only as diagnostic colour.
 | 1 | 1 sphere, 1 charge, `d/a ∈ {3, 2, 1.5, 1.2}` | **Analytic** — pins units and conventions in *both* codes independently |
 | 2 | 2 spheres, 1 charge, `R/a ∈ {4, 3, 2.5, 2.2, 2.05}` | `HybridSolve` |
 | 3 | 8 and 27 spheres + several charges | `HybridSolve` — exercises the FMM path in both |
-| 4 | near-touching pair, gap/a ∈ {0.5, 0.2, 0.1}, sweeping `precision` 3–6 | `HybridSolve`, cross-checking prec 4 against prec 6 |
+| 4 | near-touching pair, gap/a ∈ {0.5, 0.2, 0.1, 0.05} | `HybridSolve` with `p`, `im`, `gmrestol` overridden (§3.7) — **not** the shipped precision table |
 
 Rung 1 is what makes the rest trustworthy: both codes must hit an exact answer before
 they are ever compared to each other. Agreement between `HybridSolve`'s prec-4 and
