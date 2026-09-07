@@ -303,6 +303,23 @@ allocated. Also required: `iter_indicator = 0` (it gates the only assignment of
 
 ## 3. Measured results
 
+![MFS verification summary](../figures/mfs_verification_light.png)
+
+*Four panels summarising the verification. **Top left:** single-sphere accuracy
+against the exact Legendre series, as a function of proxy degree `t ≈ √(2N) − 1`,
+for four charge distances — geometric convergence, with the rate set by `d/a`.
+**Top right:** the `r_p` sweep at `d/a = 1.2`; the boundary residual falls
+monotonically while the field error passes through a minimum and then explodes,
+so the residual cannot be used as a convergence criterion. **Bottom left:**
+many-body far-field decay toward the exact single-sphere answer, following
+`O(L⁻⁴)` for both 2 and 27 spheres. **Bottom right:** GMRES iteration count
+against sphere count at `1a` surface gaps — flat at 7–8 from 8 to 512 spheres.*
+
+Regenerate with `docs/figures/gendata.jl` (sweeps, writes `docs/figures/data/*.csv`)
+then `docs/figures/makeplots.jl` (renders light/dark PNG and PDF). The plotting
+script needs `CairoMakie`; it is not a dependency of the package and is expected in
+the ambient environment.
+
 ### 3.1 Both codes hit the analytic answer
 
 `HybridMD`, one sphere + one point charge, versus the exact Neumann series
