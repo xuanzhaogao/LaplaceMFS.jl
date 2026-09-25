@@ -6,3 +6,5 @@ include("sphere.jl")
 include("operators.jl")
 
 include("utils/double_spheres.jl")
+
+include("hybridsolve.jl")

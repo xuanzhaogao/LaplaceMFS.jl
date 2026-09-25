@@ -35,6 +35,8 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v2
+      # HybridSolve (test-only dependency) compiles HybridMD's C++/Fortran sources
+      - run: sudo apt-get update && sudo apt-get install -y gfortran patch
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1

@@ -23,7 +23,11 @@ SparseArrays = "1.12.0"
 julia = "1"
 
 [extras]
+HybridSolve = "d40718ad-d2a0-494e-bdde-714dfcc15d11"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[sources]
+HybridSolve = {url = "https://github.com/xuanzhaogao/HybridSolve.jl"}
+
 [targets]
-test = ["Test"]
+test = ["HybridSolve", "Test"]
