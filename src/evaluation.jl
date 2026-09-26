@@ -43,10 +43,11 @@ function eval_exterior_pot(
 end
 
 """
-    eval_total_pot(centers, r, N, coeffs, r_p, fmm_tol, targets, charge_pos, charges)
+    eval_total_pot(centers, r, N, coeffs, r_p, fmm_tol, targets, charge_pos, charges; incident = true)
 
 Total potential at the columns of `targets` (`3 × ntrg`), inside or outside the spheres, for
-point-charge excitation. `coeffs` is the full `[p1; -q1; p2; -q2; …]` solution vector.
+point-charge excitation. With `incident = false` the incident field `u_inc` is left out, giving
+the scattered (reaction) potential. `coeffs` is the full `[p1; -q1; p2; -q2; …]` solution vector.
 Outside every sphere this is `u_inc + Σ_j u_ext_j`; inside sphere `i` it is
 `u_inc + Σ_{j≠i} u_ext_j + u_int_i`, where `u_int_i` comes from sphere `i`'s `q` sources at
 `r_q = r^2 / r_p`. Points on a surface are treated as exterior.
@@ -60,7 +61,8 @@ function eval_total_pot(
     fmm_tol::Float64,
     targets::Matrix{Float64},
     charge_pos::AbstractMatrix{Float64},
-    charges::AbstractVector{Float64},
+    charges::AbstractVector{Float64};
+    incident::Bool = true,
 )
     ns = size(centers, 1)
     length(coeffs) == 2 * ns * N ||
@@ -101,8 +103,10 @@ function eval_total_pot(
             phi[j] -= coeffs[qcol + m] * laplace3d_pot(src, T[:, jj])
         end
     end
-    for j in 1:ntrg, k in eachindex(charges)
-        phi[j] += charges[k] * laplace3d_pot(charge_pos[:, k], targets[:, j])
+    if incident
+        for j in 1:ntrg, k in eachindex(charges)
+            phi[j] += charges[k] * laplace3d_pot(charge_pos[:, k], targets[:, j])
+        end
     end
     return phi
 end
@@ -122,3 +126,12 @@ Draw the total potential on a plane cutting the system, with the sphere cross-se
 outlined. Requires a Makie backend; implemented in the `LaplaceMFSMakieExt` extension.
 """
 function plot_plane_potential end
+
+"""
+    plot_plane_error(centers, r, r_p, N, coeffs, charge_pos, charges, reference; kwargs...)
+
+Map of `log10(|u_MFS − u_ref| / max|u_ref|)` for the scattered potential on a cutting plane,
+outside the spheres. `reference(targets)` must return the reference scattered potential at the
+columns of a `3 × n` matrix. Requires a Makie backend; implemented in `LaplaceMFSMakieExt`.
+"""
+function plot_plane_error end

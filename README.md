@@ -35,7 +35,8 @@ with `B_blkdiag = blkdiag(B, ..., B)`.
   right-hand side for exterior point charges (`charge_pos` is `3 × nq`).
 - `eval_total_pot(centers, r, N, coeffs, r_p, fmm_tol, targets, charge_pos, charges)` returns
   the total potential anywhere: `u_inc + Σ_j u_ext_j` outside the spheres and
-  `u_inc + Σ_{j≠i} u_ext_j + u_int_i` inside sphere `i`.
+  `u_inc + Σ_{j≠i} u_ext_j + u_int_i` inside sphere `i`. With `incident = false` it returns the
+  scattered potential (the same quantity without `u_inc`).
 
 With a Makie backend loaded (`using CairoMakie` or `GLMakie`), the `LaplaceMFSMakieExt`
 extension provides
@@ -43,8 +44,15 @@ extension provides
 - `plot_surface_potential(centers, r, r_p, N, coeffs, charge_pos, charges; ...)`: 3D view of the
   total potential on every sphere surface;
 - `plot_plane_potential(centers, r, r_p, N, coeffs, charge_pos, charges; normal = :y, offset = 0.0, ...)`:
-  the total potential on a cutting plane, inside and outside the spheres, with the sphere
-  cross-sections outlined and nearby charges marked.
+  the potential on a cutting plane, inside and outside the spheres, with the sphere
+  cross-sections outlined and nearby charges marked. `style = :heatmap`, `:contour` (filled
+  contour bands) or `:both` (default);
+- `plot_plane_error(centers, r, r_p, N, coeffs, charge_pos, charges, reference; ...)`: a map of
+  `log10(|u − u_ref| / max|u_ref|)` for the scattered potential outside the spheres, where
+  `reference(targets)` returns a reference scattered potential at the columns of `targets`
+  (for example `t -> HybridSolve.eval_exterior_pot(sol, t)`).
+
+Both potential plots take `field = :total` (default) or `field = :scattered`.
 
 ```julia
 using LaplaceMFS, CairoMakie, Krylov

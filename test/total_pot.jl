@@ -54,4 +54,11 @@ end
     inc = [sum(q[k] / (4π * norm(T[:, j] - X[:, k])) for k in 1:2) for j in 1:2]
     @test eval_total_pot(C, r, N, lam, r_p, 1e-13, T, X, q) ≈
           eval_exterior_pot(C, N, lam, r_p, 1e-13, T) .+ inc rtol = 1e-12
+    # incident = false drops exactly u_inc, inside and outside
+    Tmix = hcat(T, [0.2 0.1; -0.3 0.0; 0.4 3.3])      # two exterior, two interior points
+    incm = [sum(q[k] / (4π * norm(Tmix[:, j] - X[:, k])) for k in 1:2) for j in 1:4]
+    @test eval_total_pot(C, r, N, lam, r_p, 1e-13, Tmix, X, q; incident = false) ≈
+          eval_total_pot(C, r, N, lam, r_p, 1e-13, Tmix, X, q) .- incm rtol = 1e-12
+    @test eval_total_pot(C, r, N, lam, r_p, 1e-13, T, X, q; incident = false) ≈
+          eval_exterior_pot(C, N, lam, r_p, 1e-13, T) rtol = 1e-12
 end

@@ -10,7 +10,7 @@ export laplace3d_pot, laplace3d_grad
 export multispheres_mu_to_lambda, multispheres_mu_to_lambda!
 export multispheres_G, multispheres_G_fmm, multispheres_Ghat, multispheres_Ghat_fmm
 export eval_exterior_pot, eval_total_pot
-export plot_surface_potential, plot_plane_potential
+export plot_surface_potential, plot_plane_potential, plot_plane_error
 export single_sphere_alpha, single_sphere_scattered_exterior, single_sphere_scattered_interior
 export double_sphere_image_coefficients, double_sphere_image_potential
 export single_sphere_forward_point_line_images, double_sphere_forward_point_line_images
