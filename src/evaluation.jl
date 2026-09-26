@@ -41,3 +41,84 @@ function eval_exterior_pot(
     out_p = lfmm3d(fmm_tol, src_p; charges = p, targets = targets, pgt = 1)
     return out_p.pottarg ./ (4π)
 end
+
+"""
+    eval_total_pot(centers, r, N, coeffs, r_p, fmm_tol, targets, charge_pos, charges)
+
+Total potential at the columns of `targets` (`3 × ntrg`), inside or outside the spheres, for
+point-charge excitation. `coeffs` is the full `[p1; -q1; p2; -q2; …]` solution vector.
+Outside every sphere this is `u_inc + Σ_j u_ext_j`; inside sphere `i` it is
+`u_inc + Σ_{j≠i} u_ext_j + u_int_i`, where `u_int_i` comes from sphere `i`'s `q` sources at
+`r_q = r^2 / r_p`. Points on a surface are treated as exterior.
+"""
+function eval_total_pot(
+    centers::Matrix{Float64},
+    r::Float64,
+    N::Int,
+    coeffs::AbstractVector,
+    r_p::Float64,
+    fmm_tol::Float64,
+    targets::Matrix{Float64},
+    charge_pos::AbstractMatrix{Float64},
+    charges::AbstractVector{Float64},
+)
+    ns = size(centers, 1)
+    length(coeffs) == 2 * ns * N ||
+        throw(DimensionMismatch("coeffs must be the full [p; -q] layout of length $(2 * ns * N)"))
+    size(targets, 1) == 3 || throw(DimensionMismatch("targets must be 3 × ntrg"))
+    ntrg = size(targets, 2)
+    # which sphere (if any) each target is strictly inside
+    owner = zeros(Int, ntrg)
+    for j in 1:ntrg
+        for s in 1:ns
+            if (targets[1, j] - centers[s, 1])^2 + (targets[2, j] - centers[s, 2])^2 +
+               (targets[3, j] - centers[s, 3])^2 < r * r
+                owner[j] = s
+                break
+            end
+        end
+    end
+    phi = zeros(ntrg)
+    ext = findall(iszero, owner)
+    isempty(ext) || (phi[ext] .= eval_exterior_pot(centers, N, coeffs, r_p, fmm_tol, targets[:, ext]))
+    pts = load_sphdes_N(N)
+    r_q = r * r / r_p
+    for s in 1:ns
+        idx = findall(==(s), owner)
+        isempty(idx) && continue
+        T = targets[:, idx]
+        # the other spheres' exterior fields (never this sphere's own p sources, which lie inside it)
+        others = [t for t in 1:ns if t != s]
+        if !isempty(others)
+            cols = reduce(vcat, [2 * (t - 1) * N + 1 : 2 * t * N for t in others])
+            phi[idx] .+= eval_exterior_pot(centers[others, :], N, coeffs[cols], r_p, fmm_tol, T)
+        end
+        # this sphere's interior field from its q sources at r_q (outside it); coeffs hold -q
+        c = centers[s, :]
+        qcol = 2 * (s - 1) * N + N
+        for (jj, j) in enumerate(idx), m in 1:N
+            src = c .+ r_q .* pts[m, :]
+            phi[j] -= coeffs[qcol + m] * laplace3d_pot(src, T[:, jj])
+        end
+    end
+    for j in 1:ntrg, k in eachindex(charges)
+        phi[j] += charges[k] * laplace3d_pot(charge_pos[:, k], targets[:, j])
+    end
+    return phi
+end
+
+"""
+    plot_surface_potential(centers, r, r_p, N, coeffs, charge_pos, charges; kwargs...)
+
+Draw the total potential on every sphere surface in 3D. Requires a Makie backend
+(`using CairoMakie` or `GLMakie`); implemented in the `LaplaceMFSMakieExt` extension.
+"""
+function plot_surface_potential end
+
+"""
+    plot_plane_potential(centers, r, r_p, N, coeffs, charge_pos, charges; kwargs...)
+
+Draw the total potential on a plane cutting the system, with the sphere cross-sections
+outlined. Requires a Makie backend; implemented in the `LaplaceMFSMakieExt` extension.
+"""
+function plot_plane_potential end

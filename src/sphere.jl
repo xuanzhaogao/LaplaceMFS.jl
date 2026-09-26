@@ -96,6 +96,37 @@ function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T})
 end
 
 """
+    multispheres_pointcharge_rhs(r, M, eps_r, centers, charge_pos, charges)
+
+Right-hand side of the multi-sphere system for point charges `charges` at the columns of
+`charge_pos` (`3 × nq`), all outside every sphere. Potential rows are zero; flux rows of
+sphere `s` hold `(eps_r - 1) ∂ₙu_inc` at its `M` collocation points, in the interleaved
+`[pot_1; flux_1; pot_2; flux_2; …]` order used by `multispheres_G` and `multispheres_Ghat`.
+"""
+function multispheres_pointcharge_rhs(r::T, M::Int, eps_r, centers::Matrix{T},
+                                      charge_pos::AbstractMatrix{T}, charges::AbstractVector{T}) where {T}
+    size(charge_pos, 1) == 3 || throw(DimensionMismatch("charge_pos must be 3 × nq"))
+    length(charges) == size(charge_pos, 2) ||
+        throw(DimensionMismatch("length(charges) = $(length(charges)) but charge_pos has $(size(charge_pos, 2)) columns"))
+    nspheres = size(centers, 1)
+    pts_M = load_sphdes_N(M)
+    rhs = zeros(promote_type(T, typeof(eps_r)), 2 * M * nspheres)
+    for s in 1:nspheres
+        c = vec(centers[s, :])
+        for i in 1:M
+            n = vec(pts_M[i, :])
+            trg = c .+ r .* n
+            dn = zero(T)
+            for k in eachindex(charges)
+                dn += charges[k] * laplace3d_grad(charge_pos[:, k], trg, n)
+            end
+            rhs[(s - 1) * 2M + M + i] = (eps_r - 1) * dn
+        end
+    end
+    return rhs
+end
+
+"""
     doublespheres_B(r, r_p, M, N, eps_r, centers)
 
 Construct the explicit 2-sphere overdetermined matrix in Eq. (10) of `refs/note.pdf`

@@ -13,7 +13,14 @@ LinearMaps = "7a12625a-238d-50fd-b39a-03d52299707e"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+
+[extensions]
+LaplaceMFSMakieExt = "Makie"
+
 [compat]
+Makie = "0.21, 0.22, 0.23, 0.24"
 Artifacts = "1.11.0"
 FMM3D = "1.0.1"
 Krylov = "0.10.5"

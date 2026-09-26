@@ -10,20 +10,6 @@
 import HybridSolve
 using Krylov, LinearAlgebra
 
-# Point-charge RHS: rows M+1..2M of each sphere block hold (eps_r - 1) ∂ₙu_inc.
-function _pointcharge_rhs(r, M, eps_r, centers, charge_pos, charges)
-    ns = size(centers, 1)
-    pts = load_sphdes_N(M)
-    rhs = zeros(2M * ns)
-    for s in 1:ns, i in 1:M
-        n = vec(pts[i, :])
-        trg = vec(centers[s, :]) .+ r .* n
-        rhs[2(s - 1) * M + M + i] = (eps_r - 1) * sum(charges[k] * laplace3d_grad(charge_pos[:, k], trg, n)
-                                                      for k in eachindex(charges))
-    end
-    return rhs
-end
-
 function _hybrid_reference(centers, eps_r, charges, charge_pos, targets; p)
     ns = size(centers, 1)
     sol = HybridSolve.hybrid_solve(centers, ones(ns), fill(eps_r, ns), charges, charge_pos;
@@ -33,7 +19,7 @@ end
 
 function _mfs_ghat(centers, eps_r, charges, charge_pos, targets; M, N, r_p, fmm = false)
     mats = SphereMats(1.0, r_p, M, N, eps_r, 1e-13)
-    rhs = _pointcharge_rhs(1.0, M, eps_r, centers, charge_pos, charges)
+    rhs = multispheres_pointcharge_rhs(1.0, M, eps_r, centers, charge_pos, charges)
     Gh = fmm ? multispheres_Ghat_fmm(mats, centers, 1e-13) : multispheres_Ghat(mats, centers)
     mu, stats = Krylov.gmres(Gh, rhs; rtol = 1e-13, atol = 1e-15, itmax = 500)
     @test stats.solved
@@ -43,7 +29,7 @@ end
 
 function _mfs_dense_ls(centers, eps_r, charges, charge_pos, targets; M, N, r_p)
     G = LaplaceMFS.multispheres_G(1.0, r_p, M, N, centers, eps_r)
-    rhs = _pointcharge_rhs(1.0, M, eps_r, centers, charge_pos, charges)
+    rhs = multispheres_pointcharge_rhs(1.0, M, eps_r, centers, charge_pos, charges)
     return eval_exterior_pot(centers, N, G \ rhs, r_p, 1e-13, targets)
 end
 
