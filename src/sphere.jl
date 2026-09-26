@@ -96,6 +96,26 @@ function multispheres_Ez_rhs(r::T, M::Int, Ez::T, eps_r::VT, centers::Matrix{T})
 end
 
 """
+    multispheres_uniform_rhs(r, M, eps_r, centers, E)
+
+Right-hand side for a uniform incident field `E` (a 3-vector), i.e. `u_inc = -E·x`. Potential
+rows are zero; flux rows hold `(eps_r - 1) ∂ₙu_inc = -(eps_r - 1) E·n`, in the interleaved
+order used by `multispheres_G` and `multispheres_Ghat`. `E = (0, 0, Ez)` reproduces
+`multispheres_Ez_rhs`.
+"""
+function multispheres_uniform_rhs(r::T, M::Int, eps_r, centers::Matrix{T}, E::AbstractVector{T}) where {T}
+    length(E) == 3 || throw(DimensionMismatch("E must be a 3-vector"))
+    _ = r
+    nspheres = size(centers, 1)
+    pts_M = load_sphdes_N(M)
+    rhs = zeros(promote_type(T, typeof(eps_r)), 2 * M * nspheres)
+    for s in 1:nspheres, i in 1:M
+        rhs[(s - 1) * 2M + M + i] = -(eps_r - 1) * (E[1] * pts_M[i, 1] + E[2] * pts_M[i, 2] + E[3] * pts_M[i, 3])
+    end
+    return rhs
+end
+
+"""
     multispheres_pointcharge_rhs(r, M, eps_r, centers, charge_pos, charges)
 
 Right-hand side of the multi-sphere system for point charges `charges` at the columns of

@@ -16,7 +16,7 @@ export double_sphere_image_coefficients, double_sphere_image_potential
 export single_sphere_forward_point_line_images, double_sphere_forward_point_line_images
 export single_sphere_forward_point_line_dipole_images, double_sphere_forward_point_line_dipole_images
 export doublespheres_B, doublespheres_Ez_rhs
-export multispheres_pointcharge_rhs
+export multispheres_pointcharge_rhs, multispheres_uniform_rhs
 
 include("core.jl")
 

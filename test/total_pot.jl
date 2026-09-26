@@ -62,3 +62,18 @@ end
     @test eval_total_pot(C, r, N, lam, r_p, 1e-13, T, X, q; incident = false) ≈
           eval_exterior_pot(C, N, lam, r_p, 1e-13, T) rtol = 1e-12
 end
+
+@testset "multispheres_uniform_rhs" begin
+    r, r_p, M, N, eps_r = 1.0, 0.5, 614, 513, 2.5
+    C = [0.0 0.0 0.0; 0.0 0.0 3.0]
+    @test multispheres_uniform_rhs(r, M, eps_r, C, [0.0, 0.0, 0.7]) ≈ LaplaceMFS.multispheres_Ez_rhs(r, M, 0.7, eps_r, C)
+    # single sphere in a uniform field along x: scattered field is α Ex a³ x / ρ³
+    c = zeros(1, 3)
+    G = LaplaceMFS.multispheres_G(r, r_p, M, N, c, eps_r)
+    lam = G \ multispheres_uniform_rhs(r, M, eps_r, c, [1.3, 0.0, 0.0])
+    T = [1.5 -2.0 0.3; 0.4 0.1 -1.8; 0.2 1.1 0.9]
+    ρ = vec(sqrt.(sum(abs2, T; dims = 1)))
+    ref = single_sphere_alpha(eps_r) * 1.3 * r^3 .* T[1, :] ./ ρ .^ 3
+    @test eval_exterior_pot(c, N, lam, r_p, 1e-13, T) ≈ ref rtol = 1e-10
+    @test_throws DimensionMismatch multispheres_uniform_rhs(r, M, eps_r, C, [1.0, 0.0])
+end
