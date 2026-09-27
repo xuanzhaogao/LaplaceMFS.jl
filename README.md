@@ -52,7 +52,9 @@ extension provides
   `reference(targets)` returns a reference scattered potential at the columns of `targets`
   (for example `t -> HybridSolve.eval_exterior_pot(sol, t)`).
 
-Both potential plots take `field = :total` (default) or `field = :scattered`.
+Both potential plots take `field = :total` (default) or `field = :scattered`. All three plotting functions take
+`rasterize` (default `2`): heatmaps, filled contours and surfaces are rasterized at 2× resolution
+when saving to PDF or SVG, keeping the files small; `rasterize = false` gives pure vector output.
 
 ```julia
 using LaplaceMFS, CairoMakie, Krylov
@@ -63,6 +65,6 @@ mats = SphereMats(r, r_p, M, N, eps_r, 1e-13)
 rhs = multispheres_pointcharge_rhs(r, M, eps_r, centers, charge_pos, charges)
 mu, _ = Krylov.gmres(multispheres_Ghat_fmm(mats, centers, 1e-13), rhs; rtol = 1e-12)
 lambda = multispheres_mu_to_lambda(mats, mu)
-save("surface.png", plot_surface_potential(centers, r, r_p, N, lambda, charge_pos, charges))
-save("plane.png", plot_plane_potential(centers, r, r_p, N, lambda, charge_pos, charges; normal = :y))
+save("surface.pdf", plot_surface_potential(centers, r, r_p, N, lambda, charge_pos, charges))
+save("plane.pdf", plot_plane_potential(centers, r, r_p, N, lambda, charge_pos, charges; normal = :y))
 ```
