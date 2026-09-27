@@ -35,7 +35,8 @@ end
 3D view of the potential on every sphere surface for the MFS solution `coeffs` (full
 `[p1; -q1; …]` layout). `field = :scattered` leaves out the incident field. Point charges are
 drawn red (positive) and blue (negative). `colorrange` defaults to ±(99th percentile of |φ|).
-Returns the `Figure`.
+`rasterize` (default `2`, i.e. 2× resolution; `false` for pure vector) rasterizes the surfaces
+when saving to a vector format such as PDF, keeping the file small. Returns the `Figure`.
 """
 function plot_surface_potential(centers::Matrix{Float64}, r::Float64, r_p::Float64, N::Int,
                                 coeffs::AbstractVector, charge_pos::AbstractMatrix{Float64},
@@ -43,7 +44,7 @@ function plot_surface_potential(centers::Matrix{Float64}, r::Float64, r_p::Float
                                 field::Symbol = :total, ntheta::Int = 48, nphi::Int = 96,
                                 fmm_tol::Float64 = 1e-12, colormap = :balance, colorrange = nothing,
                                 title = "$(_field_label(field)) on the sphere surfaces",
-                                figure = (; size = (820, 700)))
+                                rasterize = 2, figure = (; size = (820, 700)))
     incident = _check_field(field)
     ns = size(centers, 1)
     θ = range(0, π; length = ntheta)
@@ -66,7 +67,7 @@ function plot_surface_potential(centers::Matrix{Float64}, r::Float64, r_p::Float
         Y = reshape(targets[2, blk], ntheta, nphi)
         Z = reshape(targets[3, blk], ntheta, nphi)
         surface!(ax, X, Y, Z; color = reshape(vals[blk], ntheta, nphi), colormap = colormap,
-                 colorrange = crange, shading = NoShading)
+                 colorrange = crange, shading = NoShading, rasterize = rasterize)
     end
     _draw_charges!(ax, charge_pos, charges; markersize = 14)
     Colorbar(fig[1, 2]; colormap = colormap, limits = crange, label = "φ")
@@ -134,7 +135,9 @@ marked. `field = :scattered` leaves out the incident field. `style` is `:heatmap
 colour map), `:contour` (filled contour bands with lines) or `:both` (heatmap with contour
 lines). `extent = ((umin, umax), (vmin, vmax))` in the plane's two in-plane coordinates; by
 default the spheres and charges plus a margin of `2r`. `colorrange` defaults to ±(99th
-percentile of |φ|); `contours` is the number of contour levels. Returns the `Figure`.
+percentile of |φ|); `contours` is the number of contour levels. `rasterize` (default `2`; `false`
+for pure vector) rasterizes the heatmap / filled contours in vector outputs such as PDF, while
+axes, lines and labels stay vector. Returns the `Figure`.
 """
 function plot_plane_potential(centers::Matrix{Float64}, r::Float64, r_p::Float64, N::Int,
                               coeffs::AbstractVector, charge_pos::AbstractMatrix{Float64},
@@ -144,7 +147,7 @@ function plot_plane_potential(centers::Matrix{Float64}, r::Float64, r_p::Float64
                               npts::Int = 300, fmm_tol::Float64 = 1e-12, colormap = :balance,
                               colorrange = nothing, contours::Int = 15,
                               title = "$(_field_label(field)) on the plane $(normal) = $(offset)",
-                              figure = (; size = (820, 700)))
+                              rasterize = 2, figure = (; size = (820, 700)))
     incident = _check_field(field)
     style in (:heatmap, :contour, :both) || throw(ArgumentError("style must be :heatmap, :contour or :both"))
     us, vs, targets, idx = _plane_grid(centers, r, charge_pos, normal, offset, extent, npts)
@@ -159,10 +162,11 @@ function plot_plane_potential(centers::Matrix{Float64}, r::Float64, r_p::Float64
               xlabel = _LABELS[idx[2]], ylabel = _LABELS[idx[3]])
     Φc = clamp.(Φ, crange...)
     if style === :contour
-        contourf!(ax, us, vs, Φc; levels = range(crange...; length = contours + 1), colormap = colormap)
+        contourf!(ax, us, vs, Φc; levels = range(crange...; length = contours + 1), colormap = colormap,
+                  rasterize = rasterize)
         contour!(ax, us, vs, Φc; levels = levels, color = (:black, 0.35), linewidth = 0.8)
     else
-        heatmap!(ax, us, vs, Φ; colormap = colormap, colorrange = crange)
+        heatmap!(ax, us, vs, Φ; colormap = colormap, colorrange = crange, rasterize = rasterize)
         style === :both && contour!(ax, us, vs, Φc; levels = levels, color = (:black, 0.35), linewidth = 0.8)
     end
     _plane_decorations!(ax, centers, r, charge_pos, charges, offset, idx, us, vs)
@@ -181,14 +185,16 @@ Heatmap of `log10(|u_MFS − u_ref| / max|u_ref|)` for the *scattered* potential
 `x_normal = offset`, at grid points outside every sphere (interiors are left blank).
 `reference(targets)` returns the reference scattered potential at the columns of a `3 × n`
 matrix (for example `t -> HybridSolve.eval_exterior_pot(sol, t)`). The title reports the
-maximum relative error on the plane. Returns the `Figure`.
+maximum relative error on the plane. `rasterize` (default `2`) rasterizes the heatmap in vector
+outputs such as PDF. Returns the `Figure`.
 """
 function plot_plane_error(centers::Matrix{Float64}, r::Float64, r_p::Float64, N::Int,
                           coeffs::AbstractVector, charge_pos::AbstractMatrix{Float64},
                           charges::AbstractVector{Float64}, reference;
                           normal::Symbol = :y, offset::Real = 0.0, extent = nothing,
                           npts::Int = 200, fmm_tol::Float64 = 1e-12, colorrange = nothing,
-                          colormap = :viridis, title = nothing, figure = (; size = (820, 700)))
+                          colormap = :viridis, title = nothing, rasterize = 2,
+                          figure = (; size = (820, 700)))
     us, vs, targets, idx = _plane_grid(centers, r, charge_pos, normal, offset, extent, npts)
     # strictly outside every sphere, with a small margin so the reference is well defined
     outside = [all(sum(abs2, targets[:, j] .- centers[s, :]) > (r * (1 + 1e-9))^2 for s in axes(centers, 1))
@@ -210,7 +216,7 @@ function plot_plane_error(centers::Matrix{Float64}, r::Float64, r_p::Float64, N:
     fig = Figure(; figure...)
     ax = Axis(fig[1, 1]; aspect = DataAspect(), title = ttl,
               xlabel = _LABELS[idx[2]], ylabel = _LABELS[idx[3]])
-    heatmap!(ax, us, vs, E; colormap = colormap, colorrange = crange, nan_color = :white)
+    heatmap!(ax, us, vs, E; colormap = colormap, colorrange = crange, nan_color = :white, rasterize = rasterize)
     _plane_decorations!(ax, centers, r, charge_pos, charges, offset, idx, us, vs)
     Colorbar(fig[1, 2]; colormap = colormap, limits = crange, label = "log₁₀ |Δu| / max|u_ref|")
     resize_to_layout!(fig)
