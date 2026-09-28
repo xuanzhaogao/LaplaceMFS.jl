@@ -9,3 +9,4 @@ include("utils/double_spheres.jl")
 
 include("total_pot.jl")
 include("hybridsolve.jl")
+include("lines.jl")

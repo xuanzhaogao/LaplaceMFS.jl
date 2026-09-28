@@ -17,6 +17,9 @@ export single_sphere_forward_point_line_images, double_sphere_forward_point_line
 export single_sphere_forward_point_line_dipole_images, double_sphere_forward_point_line_dipole_images
 export doublespheres_B, doublespheres_Ez_rhs
 export multispheres_pointcharge_rhs, multispheres_uniform_rhs
+export MultiSphereLines, LineSphere
+export line_accumulation_radius, line_critical_gap, line_num_nodes, line_nodes
+export laplace3d_dipole_pot, laplace3d_dipole_grad
 
 include("core.jl")
 
@@ -27,6 +30,7 @@ include("sphere.jl")
 
 include("operators.jl")
 include("evaluation.jl")
+include("lines.jl")
 
 include("utils/single_sphere.jl")
 include("utils/double_spheres.jl")
