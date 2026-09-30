@@ -111,13 +111,60 @@ Normal derivative `n·∇_trg` of `laplace3d_dipole_pot(src, trg, p)`.
 laplace3d_dipole_grad(src, trg, p, n) = (k = _node_kernels(src, trg, n)[2]; p[1] * k[2] + p[2] * k[3] + p[3] * k[4])
 
 """
+    AxialMultipole
+
+Scaled axial multipoles `ψ̃_m(x) = ℓ^(m+1) P_m(cos θ) / (4π r^(m+1))`, `r = |x - y|`, `cos θ = e·(x - y)/r`,
+i.e. `ℓ^(m+1)/m! (e·∇_y)^m G(x, y)`, placed at an image accumulation point `y` (or its mirror) along the line
+direction `e`, with `ℓ` the distance from `y` to the sphere surface.
+"""
+struct AxialMultipole{T}
+    y::Vector{T}
+    e::Vector{T}
+    ℓ::T
+end
+
+# P_m(c) and P_m'(c), m = 0..mmax
+function _legendre_pd(c, mmax)
+    P = zeros(typeof(c), mmax + 1); D = zeros(typeof(c), mmax + 1)
+    P[1] = 1
+    if mmax >= 1
+        P[2] = c; D[2] = 1
+    end
+    for m in 2:mmax
+        P[m+1] = ((2m - 1) * c * P[m] - (m - 1) * P[m-1]) / m
+        D[m+1] = m * P[m] + c * D[m]
+    end
+    return P, D
+end
+
+# potential and gradient at x of the scaled axial multipoles of `orders`:
+#   ∇ψ̃_m = ℓ^(m+1) / (4π r^(m+2)) [ -(m+1) P_m r̂ - P_m'(cos θ) (cos θ r̂ - e) ]
+function _axial_multipole_pot_grad(x, mp::AxialMultipole, orders)
+    v = (x[1] - mp.y[1], x[2] - mp.y[2], x[3] - mp.y[3])
+    r = sqrt(v[1]^2 + v[2]^2 + v[3]^2)
+    rh = v ./ r
+    c = mp.e[1] * rh[1] + mp.e[2] * rh[2] + mp.e[3] * rh[3]
+    P, D = _legendre_pd(c, maximum(orders))
+    pot = zeros(length(orders)); grad = zeros(3, length(orders))
+    for (k, m) in enumerate(orders)
+        sc = (mp.ℓ / r)^(m + 1) / 4π
+        pot[k] = sc * P[m+1]
+        for a in 1:3
+            grad[a, k] = sc / r * (-(m + 1) * P[m+1] * rh[a] - D[m+1] * (c * rh[a] - mp.e[a]))
+        end
+    end
+    return pot, grad
+end
+
+"""
     LineSphere
 
 Discretization of one sphere: collocation points `targets` (with outward `normals` and row
 `weights`), exterior-field sources inside the sphere (proxy charges `p_pos`, line nodes
 `pl_pos`) and interior-field sources outside it (proxy charges `q_pos`, line nodes `ql_pos`).
-Its coefficient block is `[p; pl; q; ql]`, where each line node holds `(q, px, py, pz)`;
-as elsewhere in the package the interior block stores the negated strengths.
+Its coefficient block is `[p; pl; pm; q; ql; qm]`, where each line node holds `(q, px, py, pz)` and each
+multipole entry one coefficient per order in `morders`; as elsewhere in the package the interior block stores
+the negated strengths.
 """
 struct LineSphere{T}
     center::Vector{T}
@@ -128,20 +175,24 @@ struct LineSphere{T}
     pl_pos::Matrix{T}
     q_pos::Matrix{T}
     ql_pos::Matrix{T}
+    pm::Vector{AxialMultipole{T}}   # exterior-field multipoles (inside the sphere)
+    qm::Vector{AxialMultipole{T}}   # interior-field multipoles (mirrored, outside)
+    morders::Vector{Int}            # multipole orders carried by every pm / qm entry
 end
 
-_next(s::LineSphere) = size(s.p_pos, 2) + 4 * size(s.pl_pos, 2)
-_nint(s::LineSphere) = size(s.q_pos, 2) + 4 * size(s.ql_pos, 2)
+_next(s::LineSphere) = size(s.p_pos, 2) + 4 * size(s.pl_pos, 2) + length(s.pm) * length(s.morders)
+_nint(s::LineSphere) = size(s.q_pos, 2) + 4 * size(s.ql_pos, 2) + length(s.qm) * length(s.morders)
 _ncols(s::LineSphere) = _next(s) + _nint(s)
 _nrows(s::LineSphere) = 2 * size(s.targets, 2)
 
-# M × (nc + 4 nn) potential and normal-derivative matrices from charges at `chg` and
-# (q, px, py, pz) nodes at `nodes`
-function _source_matrices(targets, normals, chg, nodes)
+# M × (nc + 4 nn + nmp·norders) potential and normal-derivative matrices from charges at `chg`,
+# (q, px, py, pz) nodes at `nodes` and axial multipoles `mps` of `orders`
+function _source_matrices(targets, normals, chg, nodes, mps = AxialMultipole{eltype(targets)}[], orders = Int[])
     T = eltype(targets)
     m, nc, nn = size(targets, 2), size(chg, 2), size(nodes, 2)
-    S = zeros(T, m, nc + 4nn)
-    D = zeros(T, m, nc + 4nn)
+    no = length(orders)
+    S = zeros(T, m, nc + 4nn + no * length(mps))
+    D = zeros(T, m, nc + 4nn + no * length(mps))
     @inbounds for i in 1:m
         x = view(targets, :, i)
         n = view(normals, :, i)
@@ -156,6 +207,14 @@ function _source_matrices(targets, normals, chg, nodes)
             for k in 1:4
                 S[i, c + k] = pot[k]
                 D[i, c + k] = dn[k]
+            end
+        end
+        for (j, mp) in enumerate(mps)
+            pot, grad = _axial_multipole_pot_grad(x, mp, orders)
+            c = nc + 4nn + (j - 1) * no
+            for k in 1:no
+                S[i, c + k] = pot[k]
+                D[i, c + k] = n[1] * grad[1, k] + n[2] * grad[2, k] + n[3] * grad[3, k]
             end
         end
     end
@@ -183,7 +242,17 @@ pseudo-inverses (relative cut-off `tol`) are stored for the one-body preconditio
 Keywords: `n_line` (`nothing` for `line_num_nodes`, an `Int`, or a function of `t_end`),
 `Δ = 0.05`, `cap_angles = (π/5, π/60)`, `cap_factors = (6, 6)` (points per cap per unknown
 line node), `mirror = true` (also place the reflected line outside the sphere),
-`weighted = true`.
+`weighted = true`, and two enrichments for plasmonic (negative / complex ε) gap modes:
+
+- `multipole_order = 0`: for `p ≥ 2`, scaled axial multipoles of orders `2:p` (see `AxialMultipole`) at the
+  accumulation point of every neighbour line, and at its mirror for the interior field (orders 0 and 1 are
+  already carried by the line's endpoint node). They resolve the strongly singular endpoint density of
+  plasmonic gap modes (the image cascade grows when |(ε-1)/(ε+1)| > 1); `p = 8` resolves two spheres at gap
+  0.01a for ε down to -2 + 0.3i.
+- `limit_words = ()`: word lengths, e.g. `(4, 6)`, of the inversion group of mutually close spheres whose
+  attracting fixed points (limit-set singularities off the pair axes, which pair lines do not represent)
+  receive charge + dipole nodes and Kelvin mirrors. Words follow close-neighbour walks; only spheres with two
+  or more close neighbours get nodes. Needed for triangles and denser clusters.
 """
 struct MultiSphereLines{T, VT}
     r::T
@@ -198,11 +267,45 @@ struct MultiSphereLines{T, VT}
     S_B_inv::Vector{Vector{VT}}
 end
 
+# Attracting fixed points, inside sphere `s`, of the inversion-group words s = w1, w2, …, w_len (w_len ≠ s,
+# consecutive letters close neighbours): the limit-set singularities of mutually close clusters beyond the pair
+# accumulation points. Points closer than `mindist` to an existing point or inside the proxy radius are dropped.
+function _limit_set_points(centers, r, r_p, s, nbrs, lens, existing; mindist = 1e-6)
+    T = eltype(centers)
+    inv_c(x, c) = c .+ r^2 .* (x .- c) ./ sum(abs2, x .- c)
+    pts = Vector{Vector{T}}()
+    words = Vector{Vector{Int}}()
+    grow(w, len) = length(w) == len ? (w[end] != w[1] && w[end] in nbrs[w[1]] && push!(words, copy(w))) :
+                   for j in nbrs[w[end]]; j != w[end] && (push!(w, j); grow(w, len); pop!(w)); end
+    for len in lens
+        grow([s], len)
+    end
+    c = centers[s, :]
+    for w in words
+        x = c .+ T(0.01) .* [1, 2, 3]
+        for _ in 1:5000
+            y = x
+            for k in reverse(w)
+                y = inv_c(y, centers[k, :])
+            end
+            done = norm(y .- x) < 1e-14
+            x = y
+            done && break
+        end
+        norm(x .- c) > r_p || continue
+        any(p -> norm(p .- x) < mindist, pts) && continue
+        any(p -> norm(p .- x) < mindist, existing) && continue
+        push!(pts, x)
+    end
+    return pts
+end
+
 function MultiSphereLines(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}, eps_r, tol::Real;
                           charge_pos::AbstractMatrix{T} = zeros(T, 3, 0),
                           n_line = nothing, Δ::Real = 0.05,
                           cap_angles = (π / 5, π / 60), cap_factors = (6, 6),
-                          mirror::Bool = true, weighted::Bool = true) where {T}
+                          mirror::Bool = true, weighted::Bool = true,
+                          multipole_order::Int = 0, limit_words = ()) where {T}
     r_p < r || throw(ArgumentError("r_p must be < r, got r_p=$r_p, r=$r"))
     M > N || throw(ArgumentError("M must be > N, got M=$M, N=$N"))
     size(centers, 2) == 3 || throw(DimensionMismatch("centers must be nspheres × 3"))
@@ -217,31 +320,37 @@ function MultiSphereLines(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}, eps_
     δstar = line_critical_gap(r, r_p)
     w_base = 4π * r^2 / M
 
+    morders = multipole_order >= 2 ? collect(2:multipole_order) : Int[]
+    nbrs = [[t for t in 1:ns if t != s && norm(centers[t, :] .- centers[s, :]) - 2r < δstar] for s in 1:ns]
     spheres = LineSphere{T}[]
     for s in 1:ns
         c = vec(centers[s, :])
-        # (direction, end radius) of every line of this sphere
-        lines = Tuple{Vector{T}, T}[]
+        # (direction, end radius, neighbour line?) of every line of this sphere
+        lines = Tuple{Vector{T}, T, Bool}[]
         for t in 1:ns
             t == s && continue
             v = vec(centers[t, :]) .- c
             δ = norm(v) - 2r
             δ > 0 || throw(ArgumentError("spheres $s and $t overlap or touch (gap $δ)"))
-            δ < δstar && push!(lines, (v ./ norm(v), line_accumulation_radius(r, δ)))
+            δ < δstar && push!(lines, (v ./ norm(v), line_accumulation_radius(r, δ), true))
         end
         for k in axes(charge_pos, 2)
             v = charge_pos[:, k] .- c
             d = norm(v)
             d > r || throw(ArgumentError("charge $k lies inside sphere $s"))
-            r^2 / d > r_p && push!(lines, (v ./ d, r^2 / d))
+            r^2 / d > r_p && push!(lines, (v ./ d, r^2 / d, false))
         end
+        # multipoles at the accumulation point of every neighbour line (orders 0 and 1 are carried by the
+        # line's endpoint node) and at its mirror for the interior field
+        pm = [AxialMultipole(c .+ t .* d, d, r - t) for (d, t, nb) in lines if nb && !isempty(morders)]
+        qm = [AxialMultipole(c .+ (r^2 / t) .* d, d, r^2 / t - r) for (d, t, nb) in lines if nb && !isempty(morders) && mirror]
 
         targets = [c .+ r .* pts_M]
         normals = [pts_M]
         weights = [ones(T, M)]
         pl = Matrix{T}[zeros(T, 3, 0)]
         ql = Matrix{T}[zeros(T, 3, 0)]
-        for (d, t_end) in lines
+        for (d, t_end, _) in lines
             n = nodes_for(t_end)
             n >= 1 || continue
             L = line_nodes(c, d, r_p, t_end, n; Δ = Δ)
@@ -260,8 +369,17 @@ function MultiSphereLines(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}, eps_
                 push!(weights, fill(weighted ? sqrt(w / w_base) : one(T), m))
             end
         end
+        # limit-set nodes (charge + dipole, no caps) with their Kelvin mirrors
+        if !isempty(limit_words)
+            ends = [c .+ t .* d for (d, t, nb) in lines if nb]
+            for y in _limit_set_points(centers, r, r_p, s, nbrs, limit_words, ends)
+                push!(pl, reshape(y, 3, 1))
+                mirror && push!(ql, reshape(c .+ r^2 .* (y .- c) ./ sum(abs2, y .- c), 3, 1))
+            end
+        end
         push!(spheres, LineSphere(c, reduce(hcat, targets), reduce(hcat, normals), reduce(vcat, weights),
-                                  c .+ r_p .* pts_N, reduce(hcat, pl), c .+ r_q .* pts_N, reduce(hcat, ql)))
+                                  c .+ r_p .* pts_N, reduce(hcat, pl), c .+ r_q .* pts_N, reduce(hcat, ql),
+                                  pm, qm, morders))
     end
 
     VT = promote_type(T, typeof(eps_r))
@@ -284,8 +402,8 @@ end
 # [W S_ext  W S_int; W D_ext  eps W D_int] for one sphere
 function _self_block(s::LineSphere{T}, eps::VT) where {T, VT}
     m = size(s.targets, 2)
-    Se, De = _source_matrices(s.targets, s.normals, s.p_pos, s.pl_pos)
-    Si, Di = _source_matrices(s.targets, s.normals, s.q_pos, s.ql_pos)
+    Se, De = _source_matrices(s.targets, s.normals, s.p_pos, s.pl_pos, s.pm, s.morders)
+    Si, Di = _source_matrices(s.targets, s.normals, s.q_pos, s.ql_pos, s.qm, s.morders)
     B = zeros(VT, 2m, _ncols(s))
     ne = _next(s)
     B[1:m, 1:ne] .= s.weights .* Se
@@ -317,7 +435,7 @@ function multispheres_G(sys::MultiSphereLines{T, VT}) where {T, VT}
         for j in 1:nspheres(sys)
             j == i && continue
             sj = sys.spheres[j]
-            _, D = _source_matrices(si.targets, si.normals, sj.p_pos, sj.pl_pos)
+            _, D = _source_matrices(si.targets, si.normals, sj.p_pos, sj.pl_pos, sj.pm, sj.morders)
             G[rows[m+1:2m], sys.col_offsets[j] .+ (1:_next(sj))] .= one_minus_eps .* si.weights .* D
         end
     end
@@ -387,6 +505,27 @@ function _exterior_strengths(sys::MultiSphereLines, coeffs::AbstractVector{CT}) 
     return charges, reshape(dipvecs, 3, :)
 end
 
+# potential (and gradient) at `targets` of every sphere's exterior multipoles, summed directly (FMM3D takes
+# charges and dipoles only); adds into `pot` / `grad`
+function _multipole_exterior!(pot, grad, sys::MultiSphereLines, coeffs::AbstractVector, targets)
+    for s in 1:nspheres(sys)
+        sp = sys.spheres[s]
+        isempty(sp.pm) && continue
+        c = view(coeffs, _cols(sys, s))
+        off = size(sp.p_pos, 2) + 4 * size(sp.pl_pos, 2)
+        no = length(sp.morders)
+        for (j, mp) in enumerate(sp.pm)
+            a = c[off + (j - 1) * no .+ (1:no)]
+            Threads.@threads for t in axes(targets, 2)
+                P, g = _axial_multipole_pot_grad(view(targets, :, t), mp, sp.morders)
+                pot[t] += dot(P, a)
+                grad === nothing || (@views grad[:, t] .+= g * a)
+            end
+        end
+    end
+    return pot
+end
+
 # potential and gradient of all exterior sources at `targets` via FMM, 1/(4π) included
 function _fmm_exterior(sys::MultiSphereLines, coeffs::AbstractVector{<:Real}, fmm_tol, targets; pgt = 1)
     chg, dip = _exterior_sources(sys)
@@ -395,7 +534,10 @@ function _fmm_exterior(sys::MultiSphereLines, coeffs::AbstractVector{<:Real}, fm
     q = vcat(charges, zeros(size(dip, 2)))
     dv = hcat(zeros(3, size(chg, 2)), dipvecs)
     out = lfmm3d(fmm_tol, src; charges = Float64.(q), dipvecs = Float64.(dv), targets = targets, pgt = pgt)
-    return out.pottarg ./ 4π, pgt == 2 ? out.gradtarg ./ 4π : nothing
+    pot = out.pottarg ./ 4π
+    grad = pgt == 2 ? out.gradtarg ./ 4π : nothing
+    _multipole_exterior!(pot, grad, sys, coeffs, targets)
+    return pot, grad
 end
 
 function _fmm_exterior(sys::MultiSphereLines, coeffs::AbstractVector{<:Complex}, fmm_tol, targets; pgt = 1)
@@ -484,9 +626,9 @@ function eval_exterior_pot(sys::MultiSphereLines, coeffs::AbstractVector, fmm_to
     return _fmm_exterior(sys, coeffs, fmm_tol, targets)[1]
 end
 
-# potential at `targets` of the charges `chg` and (q, p) nodes `nodes` with coefficients `c`
-function _direct_pot(targets, chg, nodes, c)
-    S, _ = _source_matrices(targets, zeros(size(targets)), chg, nodes)
+# potential at `targets` of the charges `chg`, (q, p) nodes `nodes` and multipoles `mps` with coefficients `c`
+function _direct_pot(targets, chg, nodes, c, mps = AxialMultipole{eltype(targets)}[], orders = Int[])
+    S, _ = _source_matrices(targets, zeros(size(targets)), chg, nodes, mps, orders)
     return S * c
 end
 
@@ -518,9 +660,9 @@ function eval_total_pot(sys::MultiSphereLines{T}, coeffs::AbstractVector, fmm_to
             ne = _next(sp)
             if t == s
                 # the interior block holds the negated strengths
-                phi[idx] .-= _direct_pot(X, sp.q_pos, sp.ql_pos, c[ne+1:end])
+                phi[idx] .-= _direct_pot(X, sp.q_pos, sp.ql_pos, c[ne+1:end], sp.qm, sp.morders)
             else
-                phi[idx] .+= _direct_pot(X, sp.p_pos, sp.pl_pos, c[1:ne])
+                phi[idx] .+= _direct_pot(X, sp.p_pos, sp.pl_pos, c[1:ne], sp.pm, sp.morders)
             end
         end
     end
@@ -528,4 +670,138 @@ function eval_total_pot(sys::MultiSphereLines{T}, coeffs::AbstractVector, fmm_to
         phi .+= _direct_pot(targets, charge_pos, zeros(3, 0), charges)
     end
     return phi
+end
+
+"""
+    multispheres_dense_solve(sys::MultiSphereLines, rhs; cutoff = 1e-13) -> (lambda, info)
+
+Dense least-squares solve of the whole system: columns of `multispheres_G(sys)` are equilibrated to unit
+2-norm, singular values below `cutoff · σ_max` are dropped, and the minimum-norm coefficients are returned
+(`info = (; residual, rank)`). For two spheres this is the exact "pair-patch" solve; it is the most accurate
+option for plasmonic gaps (the one-body preconditioner truncates each sphere's block separately and loses
+coupled near-null directions), and practical for a few spheres.
+"""
+function multispheres_dense_solve(sys::MultiSphereLines, rhs::AbstractVector; cutoff::Real = 1e-13)
+    G = multispheres_G(sys)
+    cn = [norm(view(G, :, j)) for j in axes(G, 2)]
+    cn[cn .== 0] .= 1
+    F = svd(G ./ transpose(cn))
+    keep = F.S .> cutoff * F.S[1]
+    y = F.V[:, keep] * ((F.U[:, keep]' * rhs) ./ F.S[keep])
+    lambda = y ./ cn
+    return lambda, (; residual = norm(G * lambda - rhs) / norm(rhs), rank = count(keep))
+end
+
+"""
+    multispheres_G_fmm(sys::MultiSphereLines, fmm_tol)
+
+Matrix-free `λ ↦ G λ` (columns → rows): each sphere's self block plus the flux coupling `(1 - ε) ∂ₙ` of all
+other spheres' exterior sources, the latter by one FMM call (plus the direct multipole sum).
+"""
+function multispheres_G_fmm(sys::MultiSphereLines{T, VT}, fmm_tol::Float64) where {T, VT}
+    targets = reduce(hcat, [s.targets for s in sys.spheres])
+    normals = reduce(hcat, [s.normals for s in sys.spheres])
+    weights = reduce(vcat, [s.weights for s in sys.spheres])
+    toff = cumsum([0; [size(s.targets, 2) for s in sys.spheres]])
+    one_minus_eps = one(VT) - sys.eps_r
+    function _mul!(y, λ)
+        λT = VT.(λ)
+        _, grad = _fmm_exterior(sys, λT, fmm_tol, targets; pgt = 2)
+        for s in 1:nspheres(sys)
+            sp = sys.spheres[s]
+            m = size(sp.targets, 2)
+            idx = toff[s]+1:toff[s+1]
+            rows = _rows(sys, s)
+            ls = view(λT, _cols(sys, s))
+            view(y, rows) .= sys.B[s] * ls
+            dn = vec(sum(normals[:, idx] .* grad[:, idx]; dims = 1)) .* weights[idx]
+            ne = _next(sp)
+            self_dn = view(sys.B[s], m+1:2m, 1:ne) * view(ls, 1:ne)
+            view(y, rows[m+1:2m]) .+= one_minus_eps .* (dn .- self_dn)
+        end
+        return y
+    end
+    return LinearMap{VT}(_mul!, sys.row_offsets[end], sys.col_offsets[end]; ismutating = true)
+end
+
+"""
+    GaussSeidelPreconditioner(sys)
+
+Symmetric block Gauss-Seidel sweep over the spheres, `r ↦ y`: for each sphere in turn (forward, then
+backward) `δᵢ = Bᵢ⁺ rᵢ` (its truncated self-block pseudo-inverse), `yᵢ += δᵢ`, and the residual is updated
+on sphere i and on its close neighbours (those that carry lines towards it) with the dense coupling blocks.
+Couplings to farther spheres are left to the outer Krylov iteration.
+"""
+struct GaussSeidelPreconditioner{VT}
+    sys::MultiSphereLines
+    nbrs::Vector{Vector{Int}}
+    A::Dict{Tuple{Int, Int}, Matrix{VT}}   # (j, i) => flux rows of j from the exterior sources of i
+end
+
+function GaussSeidelPreconditioner(sys::MultiSphereLines{T, VT}) where {T, VT}
+    ns = nspheres(sys)
+    δstar = line_critical_gap(sys.r, sys.r_p)
+    C = [sys.spheres[s].center for s in 1:ns]
+    nbrs = [[t for t in 1:ns if t != s && norm(C[t] .- C[s]) - 2sys.r < δstar] for s in 1:ns]
+    A = Dict{Tuple{Int, Int}, Matrix{VT}}()
+    for i in 1:ns, j in nbrs[i]
+        si, sj = sys.spheres[i], sys.spheres[j]
+        _, D = _source_matrices(sj.targets, sj.normals, si.p_pos, si.pl_pos, si.pm, si.morders)
+        A[(j, i)] = (one(VT) - sys.eps_r) .* sj.weights .* D
+    end
+    return GaussSeidelPreconditioner{VT}(sys, nbrs, A)
+end
+
+function _block_pinv(sys, s, r)
+    u = sys.U_B[s]' * r
+    u .*= sys.S_B_inv[s]
+    return sys.Vt_B[s]' * u
+end
+
+function apply_preconditioner!(y, P::GaussSeidelPreconditioner, r0)
+    sys = P.sys
+    ns = nspheres(sys)
+    fill!(y, 0)
+    r = copy(r0)
+    for s in Iterators.flatten((1:ns, ns:-1:1))
+        rows = _rows(sys, s)
+        δ = _block_pinv(sys, s, view(r, rows))
+        view(y, _cols(sys, s)) .+= δ
+        view(r, rows) .-= sys.B[s] * δ
+        ne = _next(sys.spheres[s])
+        for j in P.nbrs[s]
+            m = size(sys.spheres[j].targets, 2)
+            view(r, _rows(sys, j)[m+1:2m]) .-= P.A[(j, s)] * view(δ, 1:ne)
+        end
+    end
+    return y
+end
+
+"""
+    multispheres_solve(sys::MultiSphereLines, rhs; preconditioner = :gauss_seidel, fmm_tol = 1e-13,
+                       rtol = 1e-12, itmax = 1000) -> (lambda, stats)
+
+Solve the line-image MFS system with GMRES and the FMM operator.
+
+- `:gauss_seidel` (default): left-preconditioned `P⁺ G λ = P⁺ rhs` with `GaussSeidelPreconditioner`; the same
+  accuracy as the one-body preconditioner with 2–13× fewer iterations on chains, most for plasmonic ε.
+- `:onebody`: the right-preconditioned one-body operator `multispheres_Ghat_fmm`.
+"""
+function multispheres_solve(sys::MultiSphereLines{T, VT}, rhs::AbstractVector; preconditioner::Symbol = :gauss_seidel,
+                            fmm_tol::Float64 = 1e-13, rtol::Real = 1e-12, itmax::Int = 1000) where {T, VT}
+    if preconditioner == :onebody
+        mu, st = Krylov.gmres(multispheres_Ghat_fmm(sys, fmm_tol), VT.(rhs); rtol = rtol, atol = 0.0, itmax = itmax)
+        return multispheres_mu_to_lambda(sys, mu), st
+    elseif preconditioner == :gauss_seidel
+        P = GaussSeidelPreconditioner(sys)
+        Gop = multispheres_G_fmm(sys, fmm_tol)
+        n = sys.col_offsets[end]
+        t = zeros(VT, sys.row_offsets[end])
+        op = LinearMap{VT}((y, x) -> (mul!(t, Gop, x); apply_preconditioner!(y, P, t)), n, n; ismutating = true)
+        b = apply_preconditioner!(zeros(VT, n), P, VT.(rhs))
+        lambda, st = Krylov.gmres(op, b; rtol = rtol, atol = 0.0, itmax = itmax, memory = min(itmax, 500))
+        return lambda, st
+    else
+        throw(ArgumentError("unknown preconditioner $preconditioner"))
+    end
 end

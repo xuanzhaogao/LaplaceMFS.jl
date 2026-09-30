@@ -96,3 +96,36 @@ mu, _ = Krylov.gmres(multispheres_Ghat_fmm(sys, 1e-13), rhs; rtol = 1e-13)
 lambda = multispheres_mu_to_lambda(sys, mu)
 eval_exterior_pot(sys, lambda, 1e-13, targets)          # rel. error 2.7e-6 vs 1.2e-4 without lines
 ```
+
+## Plasmonic gaps and clusters: multipoles, limit-set nodes, block Gauss-Seidel
+
+For negative or complex permittivity the image cascade grows (|(ε-1)/(ε+1)| > 1) and the endpoint density of
+the gap mode becomes strongly singular (multipole coefficients ~ n^α t_end^n with complex α up to 23+7i at
+gap 0.001a). Three options address it (details and measurements in `laplacemfs_work/plasmonic_pair`):
+
+- `multipole_order = p` adds scaled axial multipoles of orders `2:p` at every accumulation point and its
+  mirror (`AxialMultipole`); orders 0 and 1 are already the line's endpoint node.
+- `limit_words = (4, 6)` adds charge + dipole nodes at the limit-set singularities of mutually close
+  clusters (fixed points of inversion-group words, off the pair axes): needed for triangles and denser
+  arrangements, where pair lines alone plateau.
+- `multispheres_solve(sys, rhs)` runs GMRES with a symmetric block Gauss-Seidel preconditioner (self blocks
+  plus the dense couplings to close neighbours, far couplings by FMM) and returns `lambda` directly;
+  `multispheres_dense_solve(sys, rhs)` is the column-equilibrated truncated-SVD solve (exact pair patch).
+
+```julia
+centers = [0.0 0.0 0.0; 0.0 0.0 2.01; 0.0 0.0 4.02]      # chain, gaps 0.01
+sys = MultiSphereLines(1.0, 0.5, 614, 513, centers, -2.0 + 1.0im, 1e-13; multipole_order = 8)
+lambda, stats = multispheres_solve(sys, multispheres_uniform_rhs(sys, [0.0, 0.0, 1.0]))
+```
+
+Measured (gap error, max relative, vs the exact coaxial multipole solution):
+
+| system | ε | baseline | with the options |
+|---|---|---|---|
+| pair, gap 0.01a | −2+0.3i | 2e-2 (lines, one-body GMRES) | 7e-9 (`multipole_order = 8`, dense solve) |
+| chain of 3, gap 0.01a | −2+1i | 6e-7, 84 it. (`multipole_order = 8`, one-body) | 1e-8, 48 it. (same basis, Gauss-Seidel) |
+| chain of 5, gap 0.01a | −10 | 4e-6, 121 it. (`multipole_order = 8`, one-body) | 3e-9, 58 it. (same basis, Gauss-Seidel) |
+| triangle, gap 0.01a | 2.5 | 5e-7 far (`multipole_order = 8`, dense) | 3e-8 far (+ `limit_words = (4, 6)`) |
+
+Known limits: two spheres at gap 0.001a with ε ≈ −2 + 0.3i remain at ~2e-3 in the gap; on the triangle the
+iterative solvers do not yet reach the dense least-squares accuracy.
