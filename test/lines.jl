@@ -39,7 +39,7 @@ end
     r, r_p, M, N, eps_r = 1.0, 0.5, 243, 201, 2.5
     C = [0.0 0.0 0.0; 0.0 0.0 3.0]
     X = [0.0 1.8; 0.0 0.0; -2.0 1.5]; q = [1.0, -0.5]
-    sys = MultiSphereLines(r, r_p, M, N, C, eps_r, 1e-13; charge_pos = X)
+    sys = MultiSphereLines(r, r_p, M, N, C, eps_r, 1e-13; charge_pos = X, neutral = false)
     @test all(s -> size(s.pl_pos, 2) == 0 && size(s.targets, 2) == M, sys.spheres)
     @test multispheres_G(sys) ≈ LaplaceMFS.multispheres_G(r, r_p, M, N, C, eps_r) rtol = 1e-13
     @test multispheres_pointcharge_rhs(sys, X, q) ≈ multispheres_pointcharge_rhs(r, M, eps_r, C, X, q)

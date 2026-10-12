@@ -253,6 +253,12 @@ line node), `mirror = true` (also place the reflected line outside the sphere),
   attracting fixed points (limit-set singularities off the pair axes, which pair lines do not represent)
   receive charge + dipole nodes and Kelvin mirrors. Words follow close-neighbour walks; only spheres with two
   or more close neighbours get nodes. Needed for triangles and denser clusters.
+
+`neutral = true` divides every flux row by ε and appends one row per sphere, `Σ (charges of its exterior
+sources) / r = 0`: a sphere without free charge has no net exterior charge, for any ε. In the plain form
+(`neutral = false`) that condition enters only through the O(1/ε) exterior flux, so a net charge and a constant
+interior potential become indistinguishable and the accuracy degrades roughly ∝ ε. The neutral form keeps it
+independent of ε, and `eps_r = Inf` gives the perfect (floating, uncharged) conductor.
 """
 struct MultiSphereLines{T, VT}
     r::T
@@ -265,6 +271,28 @@ struct MultiSphereLines{T, VT}
     U_B::Vector{Matrix{VT}}
     Vt_B::Vector{Matrix{VT}}
     S_B_inv::Vector{Vector{VT}}
+    neutral::Bool       # flux rows / ε and one zero-net-charge row per sphere
+    flux::NTuple{4, VT} # flux-row factors: own exterior sources, own interior sources, other spheres, rhs
+    D_self::Vector{Matrix{VT}}  # W ∂ₙ of each sphere's own exterior sources (neutral form; plain: in sys.B)
+end
+
+# flux-row factors (own exterior, own interior, other spheres' exterior sources, incident flux)
+function _flux_factors(eps::VT, neutral::Bool) where {VT}
+    neutral || return (one(VT), eps, one(VT) - eps, eps - one(VT))
+    ie = isinf(eps) ? zero(VT) : inv(eps)
+    return (ie, one(VT), ie - one(VT), one(VT) - ie)
+end
+
+# plain-form system from its parts (as before the neutral option)
+MultiSphereLines(r, r_p, eps_r::VT, spheres, row_offsets, col_offsets, B, U_B, Vt_B, S_B_inv) where {VT} =
+    MultiSphereLines(r, r_p, eps_r, spheres, row_offsets, col_offsets, B, U_B, Vt_B, S_B_inv, false,
+                     _flux_factors(eps_r, false), Matrix{VT}[])
+
+# W ∂ₙ(own exterior sources) λ_ext on the flux rows of sphere s, removed from the FMM field of all sources
+function _self_dn(sys::MultiSphereLines, s, lambda_ext)
+    m = size(sys.spheres[s].targets, 2)
+    sys.neutral && return sys.D_self[s] * lambda_ext
+    return view(sys.B[s], m+1:2m, 1:length(lambda_ext)) * lambda_ext
 end
 
 # Attracting fixed points, inside sphere `s`, of the inversion-group words s = w1, w2, …, w_len (w_len ≠ s,
@@ -305,8 +333,9 @@ function MultiSphereLines(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}, eps_
                           n_line = nothing, Δ::Real = 0.05,
                           cap_angles = (π / 5, π / 60), cap_factors = (6, 6),
                           mirror::Bool = true, weighted::Bool = true,
-                          multipole_order::Int = 0, limit_words = ()) where {T}
+                          multipole_order::Int = 0, limit_words = (), neutral::Bool = true) where {T}
     r_p < r || throw(ArgumentError("r_p must be < r, got r_p=$r_p, r=$r"))
+    neutral || !isinf(eps_r) || throw(ArgumentError("eps_r = Inf (perfect conductor) needs neutral = true"))
     M > N || throw(ArgumentError("M must be > N, got M=$M, N=$N"))
     size(centers, 2) == 3 || throw(DimensionMismatch("centers must be nspheres × 3"))
     size(charge_pos, 1) == 3 || throw(DimensionMismatch("charge_pos must be 3 × nq"))
@@ -384,33 +413,40 @@ function MultiSphereLines(r::T, r_p::T, M::Int, N::Int, centers::Matrix{T}, eps_
 
     VT = promote_type(T, typeof(eps_r))
     eps = VT(eps_r)
-    row_offsets = cumsum([0; [_nrows(s) for s in spheres]])
+    flux = _flux_factors(eps, neutral)
+    row_offsets = cumsum([0; [_nrows(s) + neutral for s in spheres]])
     col_offsets = cumsum([0; [_ncols(s) for s in spheres]])
-    Bs, Us, Vts, Sinvs = Matrix{VT}[], Matrix{VT}[], Matrix{VT}[], Vector{VT}[]
+    Bs, Us, Vts, Sinvs, Ds = Matrix{VT}[], Matrix{VT}[], Matrix{VT}[], Vector{VT}[], Matrix{VT}[]
     tolT = float(real(tol))
     for s in spheres
-        B = _self_block(s, eps)
+        B, D = _self_block(s, flux, neutral, r)
+        neutral && push!(Ds, D)
         F = svd(B)
         push!(Bs, B)
         push!(Us, F.U)
         push!(Vts, F.Vt)
         push!(Sinvs, [abs(σ / F.S[1]) > tolT ? inv(VT(σ)) : zero(VT) for σ in F.S])
     end
-    return MultiSphereLines(r, r_p, eps, spheres, row_offsets, col_offsets, Bs, Us, Vts, Sinvs)
+    return MultiSphereLines(r, r_p, eps, spheres, row_offsets, col_offsets, Bs, Us, Vts, Sinvs, neutral, flux, Ds)
 end
 
-# [W S_ext  W S_int; W D_ext  eps W D_int] for one sphere
-function _self_block(s::LineSphere{T}, eps::VT) where {T, VT}
+# [W S_ext  W S_int; fe W D_ext  fi W D_int] for one sphere, (fe, fi) = (1, ε) in the plain form and (1/ε, 1)
+# in the neutral one, which also appends the row Σ(exterior charges) / r = 0; also returns W D_ext
+function _self_block(s::LineSphere{T}, flux::NTuple{4, VT}, neutral::Bool, r) where {T, VT}
     m = size(s.targets, 2)
     Se, De = _source_matrices(s.targets, s.normals, s.p_pos, s.pl_pos, s.pm, s.morders)
     Si, Di = _source_matrices(s.targets, s.normals, s.q_pos, s.ql_pos, s.qm, s.morders)
-    B = zeros(VT, 2m, _ncols(s))
+    B = zeros(VT, 2m + neutral, _ncols(s))
     ne = _next(s)
     B[1:m, 1:ne] .= s.weights .* Se
     B[1:m, ne+1:end] .= s.weights .* Si
-    B[m+1:2m, 1:ne] .= s.weights .* De
-    B[m+1:2m, ne+1:end] .= eps .* s.weights .* Di
-    return B
+    B[m+1:2m, 1:ne] .= flux[1] .* s.weights .* De
+    B[m+1:2m, ne+1:end] .= flux[2] .* s.weights .* Di
+    if neutral
+        np, nl = size(s.p_pos, 2), size(s.pl_pos, 2)
+        B[2m+1, [1:np; np .+ 4 .* (0:nl-1) .+ 1]] .= inv(r)
+    end
+    return B, VT.(s.weights .* De)
 end
 
 nspheres(sys::MultiSphereLines) = length(sys.spheres)
@@ -420,13 +456,13 @@ _cols(sys::MultiSphereLines, s) = sys.col_offsets[s]+1:sys.col_offsets[s+1]
 """
     multispheres_G(sys::MultiSphereLines)
 
-Dense weighted target-from-source matrix: rows `[pot_1; dn_1; pot_2; dn_2; …]`, columns
+Dense weighted target-from-source matrix: rows `[pot_1; dn_1; (net charge_1;) pot_2; …]`, columns
 `[p_1; pl_1; q_1; ql_1; p_2; …]`. The self blocks are `sys.B`; sphere `j`'s exterior sources
-enter the flux rows of sphere `i ≠ j` with the factor `1 - eps_r`.
+enter the flux rows of sphere `i ≠ j` with the factor `1 - eps_r` (`1/eps_r - 1` in the neutral form).
 """
 function multispheres_G(sys::MultiSphereLines{T, VT}) where {T, VT}
     G = zeros(VT, sys.row_offsets[end], sys.col_offsets[end])
-    one_minus_eps = one(VT) - sys.eps_r
+    coupling = sys.flux[3]
     for i in 1:nspheres(sys)
         si = sys.spheres[i]
         m = size(si.targets, 2)
@@ -436,7 +472,7 @@ function multispheres_G(sys::MultiSphereLines{T, VT}) where {T, VT}
             j == i && continue
             sj = sys.spheres[j]
             _, D = _source_matrices(si.targets, si.normals, sj.p_pos, sj.pl_pos, sj.pm, sj.morders)
-            G[rows[m+1:2m], sys.col_offsets[j] .+ (1:_next(sj))] .= one_minus_eps .* si.weights .* D
+            G[rows[m+1:2m], sys.col_offsets[j] .+ (1:_next(sj))] .= coupling .* si.weights .* D
         end
     end
     return G
@@ -558,7 +594,7 @@ function multispheres_Ghat_fmm(sys::MultiSphereLines{T, VT}, fmm_tol::Float64) w
     weights = reduce(vcat, [s.weights for s in sys.spheres])
     toff = cumsum([0; [size(s.targets, 2) for s in sys.spheres]])
     n = sys.row_offsets[end]
-    one_minus_eps = one(VT) - sys.eps_r
+    coupling = sys.flux[3]
     lambda = zeros(VT, sys.col_offsets[end])
     function _mul!(y, x)
         xT = VT.(x)
@@ -572,8 +608,8 @@ function multispheres_Ghat_fmm(sys::MultiSphereLines{T, VT}, fmm_tol::Float64) w
             dn = vec(sum(normals[:, idx] .* grad[:, idx]; dims = 1)) .* weights[idx]
             # remove the sphere's own exterior sources, already in the self block
             ne = _next(sp)
-            self_dn = view(sys.B[s], m+1:2m, 1:ne) * view(lambda, sys.col_offsets[s] .+ (1:ne))
-            view(y, sys.row_offsets[s] + m .+ (1:m)) .+= one_minus_eps .* (dn .- self_dn)
+            self_dn = _self_dn(sys, s, view(lambda, sys.col_offsets[s] .+ (1:ne)))
+            view(y, sys.row_offsets[s] + m .+ (1:m)) .+= coupling .* (dn .- self_dn)
         end
         return y
     end
@@ -583,7 +619,8 @@ end
 """
     multispheres_pointcharge_rhs(sys::MultiSphereLines, charge_pos, charges)
 
-Weighted right-hand side for exterior point charges; flux rows hold `(eps_r - 1) ∂ₙu_inc`.
+Weighted right-hand side for exterior point charges; flux rows hold `(eps_r - 1) ∂ₙu_inc` (divided by `eps_r`
+in the neutral form, whose net-charge rows are zero).
 """
 function multispheres_pointcharge_rhs(sys::MultiSphereLines{T, VT}, charge_pos::AbstractMatrix{T},
                                       charges::AbstractVector{T}) where {T, VT}
@@ -594,7 +631,7 @@ function multispheres_pointcharge_rhs(sys::MultiSphereLines{T, VT}, charge_pos::
         sp = sys.spheres[s]
         m = size(sp.targets, 2)
         _, D = _source_matrices(sp.targets, sp.normals, charge_pos, zeros(T, 3, 0))
-        view(rhs, sys.row_offsets[s] + m .+ (1:m)) .= (sys.eps_r - 1) .* sp.weights .* (D * charges)
+        view(rhs, sys.row_offsets[s] + m .+ (1:m)) .= sys.flux[4] .* sp.weights .* (D * charges)
     end
     return rhs
 end
@@ -610,7 +647,7 @@ function multispheres_uniform_rhs(sys::MultiSphereLines{T, VT}, E::AbstractVecto
     for s in 1:nspheres(sys)
         sp = sys.spheres[s]
         m = size(sp.targets, 2)
-        view(rhs, sys.row_offsets[s] + m .+ (1:m)) .= -(sys.eps_r - 1) .* sp.weights .* vec(E' * sp.normals)
+        view(rhs, sys.row_offsets[s] + m .+ (1:m)) .= -sys.flux[4] .* sp.weights .* vec(E' * sp.normals)
     end
     return rhs
 end
@@ -695,15 +732,16 @@ end
 """
     multispheres_G_fmm(sys::MultiSphereLines, fmm_tol)
 
-Matrix-free `λ ↦ G λ` (columns → rows): each sphere's self block plus the flux coupling `(1 - ε) ∂ₙ` of all
-other spheres' exterior sources, the latter by one FMM call (plus the direct multipole sum).
+Matrix-free `λ ↦ G λ` (columns → rows): each sphere's self block plus the flux coupling `(1 - ε) ∂ₙ` (`1/ε - 1`
+in the neutral form) of all other spheres' exterior sources, the latter by one FMM call (plus the direct
+multipole sum).
 """
 function multispheres_G_fmm(sys::MultiSphereLines{T, VT}, fmm_tol::Float64) where {T, VT}
     targets = reduce(hcat, [s.targets for s in sys.spheres])
     normals = reduce(hcat, [s.normals for s in sys.spheres])
     weights = reduce(vcat, [s.weights for s in sys.spheres])
     toff = cumsum([0; [size(s.targets, 2) for s in sys.spheres]])
-    one_minus_eps = one(VT) - sys.eps_r
+    coupling = sys.flux[3]
     function _mul!(y, λ)
         λT = VT.(λ)
         _, grad = _fmm_exterior(sys, λT, fmm_tol, targets; pgt = 2)
@@ -716,8 +754,8 @@ function multispheres_G_fmm(sys::MultiSphereLines{T, VT}, fmm_tol::Float64) wher
             view(y, rows) .= sys.B[s] * ls
             dn = vec(sum(normals[:, idx] .* grad[:, idx]; dims = 1)) .* weights[idx]
             ne = _next(sp)
-            self_dn = view(sys.B[s], m+1:2m, 1:ne) * view(ls, 1:ne)
-            view(y, rows[m+1:2m]) .+= one_minus_eps .* (dn .- self_dn)
+            self_dn = _self_dn(sys, s, view(ls, 1:ne))
+            view(y, rows[m+1:2m]) .+= coupling .* (dn .- self_dn)
         end
         return y
     end
@@ -747,7 +785,7 @@ function GaussSeidelPreconditioner(sys::MultiSphereLines{T, VT}) where {T, VT}
     for i in 1:ns, j in nbrs[i]
         si, sj = sys.spheres[i], sys.spheres[j]
         _, D = _source_matrices(sj.targets, sj.normals, si.p_pos, si.pl_pos, si.pm, si.morders)
-        A[(j, i)] = (one(VT) - sys.eps_r) .* sj.weights .* D
+        A[(j, i)] = sys.flux[3] .* sj.weights .* D
     end
     return GaussSeidelPreconditioner{VT}(sys, nbrs, A)
 end

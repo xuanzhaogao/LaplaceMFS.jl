@@ -97,6 +97,26 @@ lambda = multispheres_mu_to_lambda(sys, mu)
 eval_exterior_pot(sys, lambda, 1e-13, targets)          # rel. error 2.7e-6 vs 1.2e-4 without lines
 ```
 
+## Large ε and perfect conductors: the neutral formulation
+
+A sphere without free charge carries no net exterior charge, whatever ε. In the plain equations that condition
+enters only through the exterior flux, weighted 1/ε against the interior one, so for large ε a net charge and a
+constant interior potential become indistinguishable and the error grows roughly ∝ ε (two spheres at gap 0.01a,
+M = 614, dense solve: 6e-9 at ε = 10, 4e-5 at ε = 1e6, 1e-2 at ε = 1e8). `MultiSphereLines` therefore uses, by default
+(`neutral = true`), flux rows divided by ε and one extra row per sphere, `Σ (charges of its exterior sources) / r = 0`.
+The error is then independent of ε, and `eps_r = Inf` is the perfect (floating, uncharged) conductor:
+
+```julia
+centers = [0.0 0.0 0.0; 0.0 0.0 2.01]                    # two conductors, gap 0.01
+sys = MultiSphereLines(1.0, 0.5, 614, 513, centers, Inf, 1e-13)
+lambda, stats = multispheres_solve(sys, multispheres_uniform_rhs(sys, [0.0, 0.0, 1.0]))   # 15 iterations, 6e-9
+```
+
+Each sphere's row block is then `[potential; flux; net charge]` (`2m + 1` rows); `neutral = false` gives the plain
+system (`2m` rows, flux rows `ε ∂ₙu_int - ∂ₙu_ext`). Near-touching clusters (triangle, square, cubic lattices,
+gaps 0.01a and 0.001a) also need `limit_words = (4, 6)`; with both, one-body GMRES converges in at most ~80
+iterations up to ε = ∞ and block Gauss-Seidel in about 0.6× that (measurements in `laplacemfs_work/eps_pos`).
+
 ## Plasmonic gaps and clusters: multipoles, limit-set nodes, block Gauss-Seidel
 
 For negative or complex permittivity the image cascade grows (|(ε-1)/(ε+1)| > 1) and the endpoint density of
