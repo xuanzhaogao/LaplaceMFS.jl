@@ -448,6 +448,8 @@ function _self_block(s::LineSphere{T}, flux::NTuple{4, VT}, neutral::Bool, r) wh
     end
     return B, VT.(s.weights .* De)
 end
+# plain-form self block, for systems assembled by hand with the positional (plain) constructor
+_self_block(s::LineSphere, eps) = first(_self_block(s, _flux_factors(eps, false), false, one(eps)))
 
 nspheres(sys::MultiSphereLines) = length(sys.spheres)
 _rows(sys::MultiSphereLines, s) = sys.row_offsets[s]+1:sys.row_offsets[s+1]

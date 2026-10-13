@@ -80,3 +80,17 @@ end
         @test multispheres_G_fmm(sys, 1e-13) * lam ≈ multispheres_G(sys) * lam rtol = 1e-10
     end
 end
+
+@testset "plain system assembled by hand (positional constructor, two-argument _self_block)" begin
+    C = [0.0 0.0 0.0; 0.0 0.0 2.02]
+    for eps in (10.0, -2.0 + 0.3im)
+        ref = MultiSphereLines(1.0, 0.5, 243, 201, C, eps, 1e-13; neutral = false)
+        Bs = [LaplaceMFS._self_block(s, ref.eps_r) for s in ref.spheres]
+        sys = MultiSphereLines(1.0, 0.5, ref.eps_r, ref.spheres, ref.row_offsets, ref.col_offsets, Bs,
+                               ref.U_B, ref.Vt_B, ref.S_B_inv)
+        @test Bs == ref.B
+        @test multispheres_G(sys) == multispheres_G(ref)
+        x = multispheres_uniform_rhs(ref, [0.3, -0.2, 1.0])
+        @test multispheres_Ghat_fmm(sys, 1e-13) * x ≈ multispheres_Ghat(ref) * x rtol = 1e-10
+    end
+end
